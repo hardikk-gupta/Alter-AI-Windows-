@@ -6,7 +6,9 @@ This build provides five destinations in a left desktop panel, local memories, n
 
 ## Download the runnable app
 
-Open [Desktop source checks in GitHub Actions](https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml), select the latest successful run on `main`, and download the **Alter-Windows** artifact near the bottom of the run page. Extract the ZIP completely, then open `Alter.exe` inside the extracted folder on Windows. Keep the extracted files together; the app image includes its Java runtime. This is a portable development build, not a signed installer. GitHub may require you to sign in to see repository artifacts.
+Open [Desktop source checks in GitHub Actions](https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml), select the latest successful run on `main`, and download **Alter-Windows-Installer** under Artifacts. Extract the downloaded artifact ZIP, then double-click the `.msi` inside it to install Alter for your Windows user account. Launch **Alter** from the Start menu. The installer includes Java and the local inference engines; model weights download separately in Settings. GitHub may require you to sign in to see repository artifacts. This development installer is unsigned, so Windows may show a publisher warning.
+
+The separate **Alter-Windows** artifact is a portable folder ZIP. Extract it completely and run `Alter.exe` inside the folder if you prefer not to install. Downloading the repository's source ZIP will not install or run the app.
 
 If the Windows job has not passed or no artifact appears, use the source steps below while the packaging failure is fixed. The [source ZIP](https://github.com/hardikk-gupta/Alter-AI-Windows-/archive/refs/heads/main.zip) contains code, not a runnable app.
 
@@ -30,7 +32,7 @@ For local AI, open Settings → AI models, download Qwen and tap **Use model**. 
 
 On an RTX 4050, you can select a compatible official Windows CUDA `llama-server.exe` through **Use NVIDIA GPU runtime…** in AI models for faster local text inference. Keep that runtime's DLLs in the same folder as its executable. Alter's included CPU runtime remains available for lower-end PCs.
 
-Alter suggests a smaller model on lower-memory PCs, checks free disk space before a download, and keeps inference unloaded until you choose **Use model**. The river renders at a bounded resolution and frame rate on slower systems. Models and personal data live under `%LOCALAPPDATA%\Alter`, separate from the extracted app folder, so replacing the app ZIP with a newer build keeps them. Automatic installer updates are not available yet.
+Alter suggests a smaller model on lower-memory PCs, checks free disk space before a download, and keeps inference unloaded until you choose **Use model**. The river renders at a bounded resolution and frame rate on slower systems. Models and personal data live under `%LOCALAPPDATA%\Alter`, separate from the installed app, so installing a later version keeps them. Each installer release must increase the version; install the newer MSI to upgrade. Automatic update checks/downloads are not available yet.
 
 ## Cloud development
 

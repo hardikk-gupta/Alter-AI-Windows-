@@ -29,6 +29,20 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: .\scripts\build_native_windows.ps1
+      - name: Package and verify Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          .\gradlew.bat packageMsi
+          if ($LASTEXITCODE -ne 0) { throw "MSI packaging failed" }
+          .\scripts\verify_windows_installer.ps1
+      - name: Upload Windows installer
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alter-Windows-Installer
+          path: build/compose/binaries/main/msi/*.msi
+          if-no-files-found: error
       - name: Upload runnable Windows app
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

@@ -23,9 +23,15 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Alter"
-            packageVersion = "0.1.0"
+            packageVersion = "0.1.1"
             modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
-            windows { menuGroup = "Alter"; shortcut = true }
+            windows {
+                menuGroup = "Alter"
+                menu = true
+                shortcut = true
+                perUserInstall = true
+                upgradeUuid = "0d5d9a26-99a2-5541-bf39-a416d2b6947a"
+            }
         }
     }
 }

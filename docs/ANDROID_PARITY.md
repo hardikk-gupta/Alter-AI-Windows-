@@ -18,4 +18,4 @@ Reference SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
 | Google Drive/account | Pending | Windows OAuth registration and live backup acceptance needed |
 | Windows hotkeys/tray/notifications/insertion | Pending | No Android service copying |
 | Android change-notification issues | Pending configuration | Source tracked only; no sender/receiver/secrets or external messages created |
-| Windows native packaging/signing | Pending acceptance | Source CI prepares native app image; no installer published |
+| Windows native packaging/signing | Pending acceptance | CI packages an unsigned MSI with bundled inference engines; physical install/upgrade and signing pending |

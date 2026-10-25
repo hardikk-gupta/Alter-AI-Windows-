@@ -6,4 +6,6 @@
 4. Add Windows notifications/tray/focus-safe insertion/hotkeys after the app works; verify resizing, DPI, keyboard, mouse and reduced motion on Windows.
 5. Configure GitHub notification-only linkage once a default branch and scoped cross-repository credentials exist. This build only records upstream SHA/path hashes; it does not deliver notifications. Keep Android untouched. Shared-package extraction or generated update PRs need later explicit authorization.
 
+Windows CI now packages an unsigned per-user MSI with a Start menu entry and stable upgrade identity. Each future release must increase `packageVersion`; automatic update checks, signing and real Windows install/upgrade acceptance remain pending.
+
 Target hardware: low-end CPU PCs as well as the user's Ryzen 7000 HS, RTX 4050, 16 GB RAM system. The reported “4 GB virtual” is not established dedicated GPU memory. Detect/confirm available VRAM before selecting GPU layers. No Windows speed/quality benchmark has run in Linux.

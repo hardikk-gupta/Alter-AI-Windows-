@@ -1,5 +1,11 @@
 # Changes
 
+## Windows installer
+
+- Added an unsigned per-user MSI artifact alongside the portable app image. The installer adds Alter to the Start menu and retains a stable upgrade identity for later versioned releases.
+- Windows CI builds the installer after adding the pinned local text and voice engines and inspects the MSI file table for both executables. README now distinguishes installation from extracting the portable ZIP.
+- Version bumped to 0.1.1. Windows installation, upgrade behavior and SmartScreen presentation still need a physical Windows acceptance check.
+
 ## Desktop redesign and local models
 
 - Moved navigation into the designer-requested left panel while retaining Alter's icons, Satoshi and palette. Fixed startup animation state by pausing only when hidden/minimized and moved river rendering off the UI thread; retained upstream fish behavior and ASCII sampling. Linux desktop screenshots at two times differ, confirming animation advances.
