@@ -22,6 +22,7 @@ compose.desktop {
         mainClass = "alter.MainKt"
         nativeDistributions {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
+            appResourcesRootDir.set(project.layout.buildDirectory.dir("package-resources"))
             packageName = "Alter"
             packageVersion = "0.1.1"
             modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")

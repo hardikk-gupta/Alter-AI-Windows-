@@ -5,7 +5,7 @@ $projects = @(
   @{ Name = "llama"; Url = "https://github.com/ggml-org/llama.cpp.git"; Ref = "b11878"; Sha = "a55c16e4ee532aa36d55f5756f3ba28a21a2b62b" },
   @{ Name = "whisper"; Url = "https://github.com/ggml-org/whisper.cpp.git"; Ref = "v1.9.5"; Sha = "d1be6fde11ac6e0407606b4e42fe72d34add8037" }
 )
-$destination = Join-Path $PWD "build\compose\binaries\main\app\Alter\bin\native"
+$destination = Join-Path $PWD "build\package-resources\windows\native"
 foreach ($project in $projects) {
   $source = Join-Path $PWD "build\native-source\$($project.Name)"
   git clone --depth 1 --branch $project.Ref $project.Url $source

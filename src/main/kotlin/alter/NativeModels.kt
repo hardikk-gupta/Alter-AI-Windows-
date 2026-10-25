@@ -10,7 +10,7 @@ import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
 private fun nativeDirectory(): Path = System.getenv("ALTER_NATIVE_DIR")?.let(Path::of)
-    ?: Path.of(System.getProperty("java.home")).parent.resolve("bin").resolve("native")
+    ?: Path.of(System.getProperty("java.home")).parent.resolve("app").resolve("resources").resolve("native")
 
 fun nativeProgram(name: String): Path {
     val family = if (name == "whisper-cli") "whisper" else "llama"

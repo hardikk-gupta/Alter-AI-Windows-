@@ -22,9 +22,9 @@ jobs:
       - name: Linux source checks
         if: runner.os == 'Linux'
         run: ./gradlew test
-      - name: Windows checks and native application image
+      - name: Windows checks
         if: runner.os == 'Windows'
-        run: .\gradlew.bat test createDistributable
+        run: .\gradlew.bat test
       - name: Build verified Windows inference runtimes
         if: runner.os == 'Windows'
         shell: pwsh
@@ -33,7 +33,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          .\gradlew.bat packageMsi *> installer-build.log
+          .\gradlew.bat createDistributable packageMsi *> installer-build.log
           if ($LASTEXITCODE -ne 0) {
             $tail = (Get-Content installer-build.log -Tail 45) -join '%0A'
             Write-Host "::error title=MSI packaging failed::$tail"
