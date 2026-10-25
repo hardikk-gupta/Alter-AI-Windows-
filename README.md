@@ -10,6 +10,10 @@ Open [Desktop source checks in GitHub Actions](https://github.com/hardikk-gupta/
 
 The separate **Alter-Windows** artifact is a portable folder ZIP. Extract it completely and run `Alter.exe` inside the folder if you prefer not to install. Downloading the repository's source ZIP will not install or run the app.
 
+If a downloaded Qwen model fails to start, install the newest MSI, open Settings → AI models, and tap **Use model** again. The model does not need to be downloaded twice. The current build opens its runtime log from the error banner and shows common startup causes directly. The earlier 0.1.1 runtime was compiled for its build machine's CPU and may fail on other processors.
+
+The proposed next visual direction is available as an [interactive HTML review](design/desktop-review.html) and [screen images](design/README.md). It is a design draft with sample content; it is not the current installed interface.
+
 If the Windows job has not passed or no artifact appears, use the source steps below while the packaging failure is fixed. The [source ZIP](https://github.com/hardikk-gupta/Alter-AI-Windows-/archive/refs/heads/main.zip) contains code, not a runnable app.
 
 ## Run on Windows

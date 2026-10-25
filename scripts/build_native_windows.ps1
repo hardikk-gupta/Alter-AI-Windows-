@@ -14,9 +14,9 @@ foreach ($project in $projects) {
   if ($actual -ne $project.Sha) { throw "Unexpected $($project.Name) source commit: $actual" }
   $build = Join-Path $PWD "build\native-build\$($project.Name)"
   if ($project.Name -eq "llama") {
-    cmake -S $source -B $build -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_USE_PREBUILT_UI=OFF -DGGML_CUDA=OFF
+    cmake -S $source -B $build -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_USE_PREBUILT_UI=OFF -DGGML_CUDA=OFF -DGGML_NATIVE=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   } else {
-    cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=OFF
+    cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=OFF -DGGML_NATIVE=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   }
   if ($LASTEXITCODE -ne 0) { throw "Could not configure $($project.Name)" }
   $targetName = if ($project.Name -eq "llama") { "llama-server" } else { "whisper-cli" }
@@ -29,4 +29,6 @@ foreach ($project in $projects) {
   Copy-Item (Join-Path $source "LICENSE") -Destination (Join-Path $target "LICENSE")
   $executable = if ($project.Name -eq "llama") { "llama-server.exe" } else { "whisper-cli.exe" }
   if (-not (Test-Path (Join-Path $target $executable))) { throw "Missing $executable" }
+  & (Join-Path $target $executable) --version | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "$executable did not launch on Windows" }
 }

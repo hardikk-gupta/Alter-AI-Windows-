@@ -1,5 +1,11 @@
 # Changes
 
+## Portable local inference and desktop design review
+
+- Rebuilt the bundled llama.cpp and whisper.cpp engines with a portable CPU target instead of the CI runner's native instruction set, and linked the Windows C runtime statically. CI now starts each packaged executable with `--version` before publishing the MSI. This addresses a likely cause of startup exits on laptops with different CPUs; the exact failure on the user's PC still requires the runtime log.
+- Model startup failures now report the Windows exit code or a brief log-based diagnosis, offer **Open runtime log** in the app, and clear the stale “Verifying and loading…” status. Version increased to 0.1.2 so the MSI upgrades 0.1.1.
+- Added an interactive HTML design review and screenshots for Home, Alter AI, Memories, Upcoming, Notes, Appearance, AI models, About and the plus menu. These use sample content and do not replace the native UI pending review.
+
 ## Windows installer
 
 - Added an unsigned per-user MSI artifact alongside the portable app image. The installer adds Alter to the Start menu and retains a stable upgrade identity for later versioned releases.

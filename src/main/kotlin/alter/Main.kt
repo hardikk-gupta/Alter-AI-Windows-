@@ -35,6 +35,7 @@ import com.example.ui.*
 import com.example.ui.theme.*
 import kotlinx.coroutines.*
 import java.awt.Dimension
+import java.awt.Desktop
 import java.awt.Font
 import java.awt.Rectangle
 import java.awt.Robot
@@ -111,6 +112,7 @@ private fun AlterApp(store: Store, active: Boolean) {
     DisposableEffect(Unit) { onDispose { native.close(); recorder.close() } }
     var modelWork by remember { mutableStateOf<Job?>(null) }
     var modelStatus by remember { mutableStateOf("") }
+    var modelStartupFailed by remember { mutableStateOf(false) }
     var installedVersion by remember { mutableIntStateOf(0) }
     var speaking by remember { mutableStateOf(false) }
     val installed = remember(installedVersion) { models.associateWith { isRegularFile(modelPath(it)) && Files.size(modelPath(it)) == it.bytes } }
@@ -182,7 +184,10 @@ private fun AlterApp(store: Store, active: Boolean) {
                     if (error != null) Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp)) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(error!!, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
-                            TextButton(onClick = { error = null }) { Text("Dismiss") }
+                            if (modelStartupFailed && isRegularFile(modelRuntimeLog())) TextButton(onClick = {
+                                attempt { Desktop.getDesktop().open(modelRuntimeLog().toFile()) }
+                            }) { Text("Open runtime log") }
+                            TextButton(onClick = { error = null; modelStartupFailed = false }) { Text("Dismiss") }
                         }
                     }
                     if (settings != null) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -258,13 +263,18 @@ private fun AlterApp(store: Store, active: Boolean) {
                                                 if (spec.kind == "text") Button(enabled = modelWork == null, onClick = {
                                                     modelWork = scope.launch {
                                                         modelStatus = "Verifying and loading ${spec.title}…"
+                                                        modelStartupFailed = false
                                                         try {
                                                             val custom = store.setting("cudaServer").takeIf(String::isNotBlank)?.let(Path::of)
                                                             native.start(spec, store.setting("modelPort", "8080").toInt(), custom,
                                                                 if (custom == null) 0 else 99)
                                                             store.setting("textModel", spec.id, true)
                                                             modelStatus = "${spec.title} is ready for offline chat."
-                                                        } catch (e: Exception) { error = e.message ?: "Model startup failed." }
+                                                        } catch (e: Exception) {
+                                                            modelStatus = "${spec.title} could not start."
+                                                            modelStartupFailed = true
+                                                            error = e.message ?: "Model startup failed."
+                                                        }
                                                         finally { modelWork = null }
                                                     }
                                                 }) { Text(if (native.running && store.setting("textModel") == spec.id) "In use" else "Use model") }
