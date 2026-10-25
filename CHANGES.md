@@ -1,5 +1,12 @@
 # Changes
 
+## Desktop redesign and local models
+
+- Moved navigation into the designer-requested left panel while retaining Alter's icons, Satoshi and palette. Fixed startup animation state by pausing only when hidden/minimized and moved river rendering off the UI thread; retained upstream fish behavior and ASCII sampling. Linux desktop screenshots at two times differ, confirming animation advances.
+- Added official Qwen3 0.6B Q8_0 / 4B Q4_K_M and multilingual Whisper Tiny/Base model entries with immutable source revisions, exact sizes and SHA-256 values. In-app downloads verify before activation; Windows CI builds pinned CPU llama.cpp and whisper.cpp runtimes for the app artifact. No weights are bundled.
+- Added local text model startup and explicit microphone → Whisper transcription → reviewable prompt. GPU inference, physical Windows speech quality and complete Android agent/voice parity still need acceptance.
+- Linux checks: `./gradlew test` passed 7 tests, 0 failures/skips; model catalog and digest checks are included. Internal desktop UI run completed and two screenshots taken 3.5 seconds apart had different SHA-256 values, confirming the fish animation advances. Windows native runtimes and physical microphone remain untested here.
+
 ## Download handoff
 
 - Windows CI now uploads its `createDistributable` app image as the `Alter-Windows` Actions artifact only after Windows tests and packaging pass. README explains extraction and launch. This is an unsigned development app image; a signed installer and Windows hardware acceptance are still outstanding.

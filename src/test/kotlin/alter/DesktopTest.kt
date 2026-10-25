@@ -9,9 +9,30 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.security.MessageDigest
 import kotlin.test.*
 
 class DesktopTest {
+    @Test fun reviewedModelsRequireCorrectBytesAndDigest() {
+        assertEquals(models.size, models.map { it.id }.distinct().size)
+        models.forEach { spec ->
+            assertTrue(spec.url.startsWith("https://huggingface.co/${spec.repo}/resolve/${spec.revision}/"))
+            assertTrue(spec.revision.matches(Regex("[0-9a-f]{40}")))
+            assertTrue(spec.sha256.matches(Regex("[0-9a-f]{64}")))
+            assertTrue(spec.bytes > 1_000_000)
+        }
+        val dir = Files.createTempDirectory("alter-model-check-")
+        try {
+            val body = "real artifact bytes".toByteArray()
+            val digest = MessageDigest.getInstance("SHA-256").digest(body).joinToString("") { "%02x".format(it) }
+            val spec = ModelSpec("test", "Test", "text", "Qwen/example", "a".repeat(40), "test.gguf", body.size.toLong(), digest, "")
+            Files.createDirectories(modelPath(spec, dir).parent)
+            Files.write(modelPath(spec, dir), body)
+            assertTrue(verified(spec, dir))
+            Files.write(modelPath(spec, dir), "fake artifact bytes".toByteArray())
+            assertFalse(verified(spec, dir))
+        } finally { dir.toFile().deleteRecursively() }
+    }
     @Test fun notesTasksAndSettingsSurviveReopening() {
         val dir = Files.createTempDirectory("alter-test-")
         try {

@@ -35,8 +35,11 @@ import java.awt.Dimension
 import java.awt.Font
 import java.awt.Rectangle
 import java.awt.Robot
+import java.awt.event.WindowAdapter
+import java.awt.event.WindowEvent
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Files.isRegularFile
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -56,9 +59,22 @@ fun main(args: Array<String>) {
     application {
         Window(onCloseRequest = { store.close(); exitApplication() }, title = "Alter",
             state = rememberWindowState(width = 1024.dp, height = 760.dp)) {
-            window.minimumSize = Dimension(420, 540)
-            AlterApp(store, window.isActive)
+            window.minimumSize = Dimension(650, 540)
+            var isVisible by remember { mutableStateOf(true) }
+            DisposableEffect(window) {
+                val listener = object : WindowAdapter() {
+                    override fun windowIconified(event: WindowEvent) { isVisible = false }
+                    override fun windowDeiconified(event: WindowEvent) { isVisible = true }
+                }
+                window.addWindowListener(listener)
+                onDispose { window.removeWindowListener(listener) }
+            }
+            AlterApp(store, isVisible)
             if (args.contains("--screenshot")) LaunchedEffect(Unit) {
+                delay(1000)
+                val before = Path.of("build", "screenshots", "desktop-before.png")
+                Files.createDirectories(before.parent)
+                ImageIO.write(Robot().createScreenCapture(Rectangle(window.locationOnScreen, window.size)), "png", before.toFile())
                 delay(3500)
                 val output = Path.of("build", "screenshots", "desktop.png")
                 Files.createDirectories(output.parent)
@@ -74,7 +90,7 @@ private fun AlterApp(store: Store, active: Boolean) {
     val scope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(Destination.Home) }
     var settings by remember { mutableStateOf<String?>(null) }
-    var theme by remember { mutableStateOf(store.setting("theme", "Device")) }
+    var theme by remember { mutableStateOf(store.setting("theme", "Pitch Black")) }
     var reducedMotion by remember { mutableStateOf(store.setting("reducedMotion", "false").toBoolean()) }
     var cards by remember { mutableStateOf(store.cards()) }
     var messages by remember { mutableStateOf(store.messages()) }
@@ -84,6 +100,14 @@ private fun AlterApp(store: Store, active: Boolean) {
     var error by remember { mutableStateOf<String?>(null) }
     var prompt by remember { mutableStateOf("") }
     var generation by remember { mutableStateOf<Job?>(null) }
+    val native = remember { NativeModels() }
+    val recorder = remember { VoiceRecorder() }
+    DisposableEffect(Unit) { onDispose { native.close(); recorder.close() } }
+    var modelWork by remember { mutableStateOf<Job?>(null) }
+    var modelStatus by remember { mutableStateOf("") }
+    var installedVersion by remember { mutableIntStateOf(0) }
+    var speaking by remember { mutableStateOf(false) }
+    val installed = remember(installedVersion) { models.associateWith { isRegularFile(modelPath(it)) && Files.size(modelPath(it)) == it.bytes } }
     val pond = remember { ShoalSimulation() }
     val dark = theme == "Pitch Black" || (theme == "Device" && isSystemInDarkTheme())
     val satoshi = remember {
@@ -108,6 +132,7 @@ private fun AlterApp(store: Store, active: Boolean) {
     fun attempt(action: () -> Unit) { try { action() } catch (e: Exception) { error = e.message ?: "Could not save. Your editor is still open." } }
     fun send() {
         if (prompt.isBlank() || generation != null) return
+        if (!native.running) { settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
         val text = prompt.trim()
         attempt {
             store.addMessage("user", text); messages = store.messages(); prompt = ""
@@ -130,15 +155,18 @@ private fun AlterApp(store: Store, active: Boolean) {
                 else -> true
             } }
             val showRiver = settings == null && (destination == Destination.Chat || content.isEmpty())
-            Box(Modifier.fillMaxSize().onPreviewKeyEvent {
+            Row(Modifier.fillMaxSize().onPreviewKeyEvent {
                 if (it.type == KeyEventType.KeyDown && it.isCtrlPressed && it.key == Key.N && settings == null && destination != Destination.Chat) {
                     draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else "note", rawInput = "", processedContent = ""); true
                 } else false
             }) {
+                Navigation(destination, settings != null, { destination = it; settings = null; search = "" }, { settings = "root" })
+                Box(Modifier.weight(1f).fillMaxHeight()) {
                 River(pond, showRiver, active && !reducedMotion && draft == null,
                     if (destination == Destination.Chat && messages.isNotEmpty()) .3f else .75f, dark)
-                Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.fillMaxSize().padding(horizontal = 32.dp, vertical = 24.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Row(Modifier.fillMaxWidth().background(colors.background.copy(alpha = .94f), RoundedCornerShape(12.dp)),
+                        verticalAlignment = Alignment.CenterVertically) {
                         Text(if (settings == null) destination.title else if (settings == "root") "Settings" else settings!!,
                             style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                         if (settings != null) TextButton(onClick = { settings = if (settings == "root") null else "root" }) { Text("Back") }
@@ -169,18 +197,71 @@ private fun AlterApp(store: Store, active: Boolean) {
                                 }
                             }
                             "AI models" -> {
-                                Text("Local", style = MaterialTheme.typography.titleLarge)
-                                Text("Run a compatible llama.cpp server on this PC. Chat stays local. Cloud providers and agent tools are not available yet.")
-                                var port by remember { mutableStateOf(store.setting("modelPort", "8080")) }
-                                OutlinedTextField(port, { port = it.filter(Char::isDigit).take(5) }, label = { Text("Local server port") })
-                                Button(onClick = { attempt {
-                                    require(port.toIntOrNull() in 1024..65535) { "Choose a port from 1024 to 65535." }
-                                    store.setting("modelPort", port, true)
-                                } }) { Text("Save") }
-                                Text("Low-memory PCs: Qwen3 0.6B Q4_K_M. Your 16 GB PC: start with Qwen3 4B Q4_K_M; reduce context or GPU layers if memory is tight. These are candidates, not measured speed guarantees.")
-                                Text("See docs/WINDOWS_MODELS.md for official sources and setup. Model installation is manual in this first build.")
+                                Text("On this PC", style = MaterialTheme.typography.titleLarge)
+                                Text("Download one text model, then tap Use model. Speech models are separate. Models stay in Alter's private data folder and work offline after installation.")
+                                if (modelStatus.isNotBlank()) Text(modelStatus, color = AlterYellow)
+                                var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
+                                Text("Inference: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(onClick = { attempt {
+                                        val chooser = javax.swing.JFileChooser()
+                                        chooser.dialogTitle = "Choose a compatible Windows CUDA llama-server.exe"
+                                        if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                            val selected = chooser.selectedFile.toPath()
+                                            require(selected.fileName.toString().equals("llama-server.exe", true)) { "Choose llama-server.exe." }
+                                            store.setting("cudaServer", selected.toString(), true); customRuntime = selected.toString()
+                                        }
+                                    } }) { Text("Use NVIDIA GPU runtime…") }
+                                    if (customRuntime.isNotBlank()) TextButton(onClick = {
+                                        store.setting("cudaServer", "", true); customRuntime = ""
+                                    }) { Text("Use included CPU") }
+                                }
+                                Text("For RTX 4050, install a compatible CUDA llama.cpp release and select its llama-server.exe. Keep its DLLs beside the executable. This build includes the CPU runtime for all PCs.", style = MaterialTheme.typography.bodySmall)
+                                models.forEach { spec ->
+                                    Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(16.dp)).padding(16.dp),
+                                        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Text(spec.title, style = MaterialTheme.typography.titleMedium)
+                                        Text(spec.description, style = MaterialTheme.typography.bodySmall)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            if (installed[spec] == true) {
+                                                if (spec.kind == "text") Button(enabled = modelWork == null, onClick = {
+                                                    modelWork = scope.launch {
+                                                        modelStatus = "Verifying and loading ${spec.title}…"
+                                                        try {
+                                                            val custom = store.setting("cudaServer").takeIf(String::isNotBlank)?.let(Path::of)
+                                                            native.start(spec, store.setting("modelPort", "8080").toInt(), custom,
+                                                                if (custom == null) 0 else 99)
+                                                            store.setting("textModel", spec.id, true)
+                                                            modelStatus = "${spec.title} is ready for offline chat."
+                                                        } catch (e: Exception) { error = e.message ?: "Model startup failed." }
+                                                        finally { modelWork = null }
+                                                    }
+                                                }) { Text(if (native.running && store.setting("textModel") == spec.id) "In use" else "Use model") }
+                                                else Button(onClick = { attempt {
+                                                    require(verified(spec)) { "Speech model checksum did not match. Download again." }
+                                                    store.setting("voiceModel", spec.id, true)
+                                                    modelStatus = "${spec.title} selected for dictation."
+                                                } }) { Text(if (store.setting("voiceModel") == spec.id) "Selected" else "Use for voice") }
+                                            } else Button(enabled = modelWork == null, onClick = {
+                                                modelWork = scope.launch {
+                                                    try {
+                                                        modelStatus = "Downloading ${spec.title}…"
+                                                        downloadModel(spec, { n, total -> modelStatus = "${spec.title}: ${n * 100 / total}%" })
+                                                        installedVersion++
+                                                        modelStatus = "${spec.title} downloaded and verified."
+                                                    } catch (e: CancellationException) { modelStatus = "Download cancelled." }
+                                                    catch (e: Exception) { error = e.message ?: "Model download failed." }
+                                                    finally { modelWork = null }
+                                                }
+                                            }) { Text("Download") }
+                                            TextButton(onClick = { java.awt.Desktop.getDesktop().browse(java.net.URI(spec.page)) }) { Text("Source & licence") }
+                                        }
+                                    }
+                                }
+                                if (modelWork != null) TextButton(onClick = { modelWork?.cancel() }) { Text("Cancel download / startup") }
+                                if (native.running) TextButton(onClick = { native.stop(); modelStatus = "Local model stopped." }) { Text("Release model") }
                             }
-                            "Voice & files" -> Text("Microphone, dictation, attachments, retrieval and system hotkeys are pending Windows adapters. No recording starts in this build.")
+                            "Voice & files" -> Text("Tap Mic in Alter AI to record, then Stop mic to transcribe with a downloaded Whisper model. Review the transcript before sending. File attachment, retrieval and system hotkeys need later Windows adapters.")
                             "Backup & account" -> Text("Records are stored privately on this PC. Android ZIP v2 import/export and desktop Google authorization are pending. Do not copy an Android database into this app.")
                             "About" -> Text("Alter for Windows · first desktop increment\nAndroid reference: 0bda3d8583d1f53b6f305e1eeb22628c17a08e66\nLocal notes, memories, tasks and chat history. See the parity ledger for pending features.")
                         }
@@ -199,18 +280,38 @@ private fun AlterApp(store: Store, active: Boolean) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             TextButton(enabled = generation == null, onClick = { attempt { store.clearMessages(); messages = store.messages() } }) { Text("New conversation") }
                             Spacer(Modifier.weight(1f))
-                            TextButton(onClick = { settings = "AI models" }) { Text("Local ⌄") }
+                            TextButton(onClick = { settings = "AI models" }) { Text(if (native.running) "Local · ready ⌄" else "Set up local model ⌄") }
                         }
                         Row(Modifier.fillMaxWidth().background(colors.surface.copy(alpha = .88f), RoundedCornerShape(12.dp))
                             .border(.5.dp, colors.outline, RoundedCornerShape(12.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             OutlinedTextField(prompt, { prompt = it.take(16000) }, Modifier.weight(1f).heightIn(max = 160.dp)
                                 .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Enter && it.isCtrlPressed) { send(); true } else false },
                                 placeholder = { Text("Ask Alter · Ctrl+Enter to send") }, enabled = generation == null)
+                            TextButton(onClick = {
+                                if (!recorder.recording) attempt {
+                                    val chosen = models.firstOrNull { it.id == store.setting("voiceModel") }
+                                        ?: error("Download and select a speech model in AI models first.")
+                                    require(installed[chosen] == true) { "Selected speech model is missing." }
+                                    recorder.start(); speaking = true; modelStatus = "Recording… Tap Stop when finished."
+                                } else {
+                                    speaking = false
+                                    val chosen = models.first { it.id == store.setting("voiceModel") }
+                                    modelWork = scope.launch {
+                                        modelStatus = "Transcribing locally…"
+                                        try {
+                                            val transcript = recorder.stopAndTranscribe(chosen)
+                                            prompt = listOf(prompt.trim(), transcript).filter(String::isNotBlank).joinToString(" ")
+                                            modelStatus = "Transcript ready. Review it before sending."
+                                        } catch (e: Exception) { error = e.message ?: "Transcription failed." }
+                                        finally { modelWork = null }
+                                    }
+                                }
+                            }) { Text(if (speaking) "Stop mic" else "Mic") }
                             if (generation != null) TextButton(onClick = { generation?.cancel() }) { Text("Stop") }
                             else IconButton(onClick = { send() }, enabled = prompt.isNotBlank()) { Text("→", fontSize = 26.sp) }
                         }
                     } else {
-                        OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth(), singleLine = true,
+                        OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(12.dp)), singleLine = true,
                             placeholder = { Text("Search ${destination.title.lowercase()}") }, leadingIcon = { Icon(Lucide.Search, null) })
                         val filtered = content.filter { (it.rawInput + "\n" + it.processedContent).contains(search, ignoreCase = true) }
                         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -229,9 +330,8 @@ private fun AlterApp(store: Store, active: Boolean) {
                             FilledTonalButton(onClick = { draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else if (destination == Destination.Notes) "note" else "text", rawInput = "", processedContent = "") },
                                 shape = RoundedCornerShape(20.dp)) { Icon(Lucide.Plus, "Add"); Spacer(Modifier.width(8.dp)); Text("Capture") }
                         }
-                        Navigation(destination, reducedMotion) { destination = it; search = "" }
                     }
-                    if (destination == Destination.Chat && settings == null) Navigation(destination, reducedMotion) { destination = it; search = "" }
+                }
                 }
             }
             draft?.let { card ->
@@ -248,20 +348,34 @@ private fun AlterApp(store: Store, active: Boolean) {
 }
 
 @Composable
-private fun Navigation(current: Destination, reduced: Boolean, select: (Destination) -> Unit) {
+private fun Navigation(current: Destination, settings: Boolean, select: (Destination) -> Unit, openSettings: () -> Unit) {
     val icons = listOf(Lucide.Home, Lucide.Sparkles, Lucide.Memories, Lucide.Calendar, Lucide.FileText)
-    Row(Modifier.fillMaxWidth().height(64.dp).background(MaterialTheme.colorScheme.surface, RoundedCornerShape(20.dp))
-        .border(.5.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(20.dp)).padding(8.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.width(206.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surface)
+        .border(width = .5.dp, color = MaterialTheme.colorScheme.outline).padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Row(Modifier.fillMaxWidth().height(74.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(painterResource("alter-logo.xml"), null, Modifier.size(30.dp), AlterYellow)
+            Spacer(Modifier.width(10.dp)); Text("alter", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+        }
+        Text("Workspace", Modifier.padding(start = 13.dp, top = 14.dp, bottom = 8.dp), fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = .55f))
         Destination.entries.forEachIndexed { i, tab ->
-            Column(Modifier.weight(1f).fillMaxHeight().semantics { selected = current == tab }
-                .background(if (tab == current) Color.Black else Color.Transparent, RoundedCornerShape(16.dp))
-                .clickable(role = Role.Tab) { select(tab) }.padding(4.dp), horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center) {
-                if (tab == Destination.Chat) Icon(painterResource("alter-logo.xml"), null, Modifier.size(20.dp), if (tab == current) AlterYellow else MaterialTheme.colorScheme.onSurface)
-                else Icon(icons[i], null, Modifier.size(20.dp), if (tab == current) AlterYellow else MaterialTheme.colorScheme.onSurface)
-                Text(tab.title, fontSize = 11.sp, maxLines = 1, color = if (tab == current) Color.White else MaterialTheme.colorScheme.onSurface)
+            val selected = tab == current && !settings
+            Row(Modifier.fillMaxWidth().height(48.dp).semantics { this.selected = selected }
+                .background(if (selected) AlterYellow.copy(alpha = .13f) else Color.Transparent, RoundedCornerShape(12.dp))
+                .clickable(role = Role.Tab) { select(tab) }.padding(horizontal = 13.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Icon(icons[i], null, Modifier.size(20.dp), if (selected) AlterYellow else MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
+                Spacer(Modifier.width(14.dp))
+                Text(tab.title, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = .72f))
             }
+        }
+        Spacer(Modifier.weight(1f))
+        Row(Modifier.fillMaxWidth().height(48.dp).background(if (settings) AlterYellow.copy(alpha = .13f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .clickable(onClick = openSettings).padding(horizontal = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Lucide.Settings, null, Modifier.size(20.dp), AlterYellow)
+            Spacer(Modifier.width(14.dp)); Text("Settings", fontSize = 14.sp)
         }
     }
 }
@@ -324,21 +438,22 @@ private fun River(pond: ShoalSimulation, visible: Boolean, animate: Boolean, opa
     DisposableEffect(Unit) { onDispose { renderer.close() } }
     LaunchedEffect(visible, animate, dimensions, density, opacity, dark) {
         if (!visible || dimensions.width == 0 || dimensions.height == 0) return@LaunchedEffect
-        pond.resize(dimensions.width / density, dimensions.height / density)
-        val bitmap = Bitmap.createBitmap(dimensions.width, dimensions.height, Bitmap.Config.ARGB_8888)
-        try {
-            do {
-                bitmap.eraseColor(0)
-                RiverCanvas(bitmap).use { renderer.draw(it, pond, dimensions.width.toFloat(), dimensions.height.toFloat(), density, opacity, dark) }
-                image = bitmap.image.toComposeImageBitmap()
-                if (!animate) break
-                delay(33)
-                pond.update(.033f)
-            } while (isActive)
-        } finally { bitmap.recycle() }
+        synchronized(pond) { pond.resize(dimensions.width / density, dimensions.height / density) }
+        do {
+            image = withContext(Dispatchers.Default) {
+                val bitmap = Bitmap.createBitmap(dimensions.width, dimensions.height, Bitmap.Config.ARGB_8888)
+                synchronized(pond) {
+                    if (animate) pond.update(.05f)
+                    RiverCanvas(bitmap).use { renderer.draw(it, pond, dimensions.width.toFloat(), dimensions.height.toFloat(), density, opacity, dark) }
+                }
+                bitmap.image.toComposeImageBitmap()
+            }
+            if (!animate) break
+            delay(50)
+        } while (isActive)
     }
     Box(Modifier.fillMaxSize().onSizeChanged { dimensions = it }
-        .then(if (visible && animate) Modifier.pointerInput(Unit) { detectTapGestures { pond.feed(it.x / density, it.y / density) } } else Modifier)) {
+        .then(if (visible && animate) Modifier.pointerInput(Unit) { detectTapGestures { synchronized(pond) { pond.feed(it.x / density, it.y / density) } } } else Modifier)) {
         if (visible) image?.let { Image(it, null, Modifier.fillMaxSize()) }
     }
 }

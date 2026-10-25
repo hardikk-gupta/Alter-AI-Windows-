@@ -2,7 +2,7 @@
 
 First desktop increment of Alter, referenced to [Android main at 0bda3d8](https://github.com/hardikk-gupta/ALTER-AI-code-base/tree/0bda3d8583d1f53b6f305e1eeb22628c17a08e66).
 
-This build provides the five product destinations, local memories, notes, checkbox tasks, search, editing/deletion, themes and a shared river. Local chat connects to a user-started llama.cpp server. See [parity and limits](docs/ANDROID_PARITY.md); this is not full Android parity.
+This build provides five destinations in a left desktop panel, local memories, notes, tasks, themes and a shared river. Text chat and microphone transcription use local Windows runtimes and separately downloaded models. See [parity and limits](docs/ANDROID_PARITY.md); this is not full Android parity.
 
 ## Download the runnable app
 
@@ -26,7 +26,9 @@ Data is stored under `%LOCALAPPDATA%\Alter\alter-desktop.db`. It is private loca
 
 Use Capture to save a Memory, Note or Task. Tasks accept one explicit commitment per line; no reminder time is invented. Ctrl+N opens capture, Ctrl+Enter sends chat, and the standard Tab/Space/Enter keys operate controls. Completed checkboxes stay saved. Deletion is confirmed and soft-deletes records; there is no Trash restoration UI yet.
 
-For local AI, follow [Windows model setup](docs/WINDOWS_MODELS.md). Model binaries, microphone/GPU performance, Windows DPI/input and OS integrations need Windows acceptance. No credentials are required for the shell or local chat.
+For local AI, open Settings → AI models, download Qwen and tap **Use model**. The app verifies the pinned size and SHA-256 before running its bundled CPU llama.cpp server. For speech, download and select Whisper Tiny or Base, then tap **Mic** and **Stop mic** in Alter AI. Review the resulting draft before sending. See [model details](docs/WINDOWS_MODELS.md). Microphone/GPU performance, Windows DPI/input and OS integrations need Windows acceptance.
+
+On an RTX 4050, you can select a compatible official Windows CUDA `llama-server.exe` through **Use NVIDIA GPU runtime…** in AI models for faster local text inference. Keep that runtime's DLLs in the same folder as its executable. Alter's included CPU runtime remains available for lower-end PCs.
 
 ## Cloud development
 

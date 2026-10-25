@@ -4,7 +4,7 @@ Use replaceable providers with the same Alter instructions. These are candidates
 
 | Hardware | Start with | Tradeoff |
 | --- | --- | --- |
-| Low-end CPU / about 8 GB system RAM | [Qwen3 0.6B GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF), Q4_K_M | Small/fast candidate, weaker reasoning and multilingual quality; start at 2048 context |
+| Low-end CPU / about 8 GB system RAM | [Qwen3 0.6B GGUF](https://huggingface.co/Qwen/Qwen3-0.6B-GGUF), Q8_0 | Official 640 MB file; weaker reasoning and multilingual quality; 2048 context |
 | CPU with more headroom | [Qwen3 1.7B GGUF](https://huggingface.co/Qwen/Qwen3-1.7B-GGUF), Q4_K_M | Middle candidate; benchmark against 0.6B on actual tasks |
 | Your Ryzen 7000 HS / RTX 4050 / 16 GB RAM | [Qwen3 4B GGUF](https://huggingface.co/Qwen/Qwen3-4B-GGUF), Q4_K_M | Better-quality candidate; start at 4096 context, partial GPU offload if VRAM is tight |
 | Hindi/Hinglish speech | [Whisper multilingual Tiny/Base](https://github.com/ggml-org/whisper.cpp) | Base is a reasonable accuracy/latency comparison; English-only .en weights are unsuitable for Hindi |
@@ -14,15 +14,15 @@ All Qwen recommendations here use official Qwen repositories and Apache-2.0 mode
 
 ## Manual local chat setup
 
-1. Obtain a current official Windows x64 [llama.cpp release](https://github.com/ggml-org/llama.cpp/releases) and follow its Windows CPU/CUDA requirements. Verify published release checksums/provenance. CUDA packages require a compatible NVIDIA driver/runtime; use CPU if unavailable.
-2. Download the chosen GGUF from the official model repository after reviewing the licence. Verify its exact size and SHA-256 against the repository's LFS record at an immutable commit. Keep weights outside Git, for example `%LOCALAPPDATA%\Alter\models`. This build deliberately has no unverified automatic downloader.
-3. From PowerShell, run a CPU baseline (adjust executable/model paths):
+1. Open Settings → AI models. Download Qwen3 0.6B (low memory) or 4B (16 GB system). The app uses pinned official revisions and checks exact size and SHA-256 before activation. Weights live in `%LOCALAPPDATA%\Alter\models`, outside Git and the app ZIP.
+2. Tap **Use model**. The bundled CPU llama.cpp server starts on `127.0.0.1:8080`; wait for the ready status, then chat. Windows native source is pinned and built in CI with its licence beside the binaries. There is no cloud fallback.
+3. For the user's RTX 4050, obtain a compatible official Windows CUDA [llama.cpp release](https://github.com/ggml-org/llama.cpp/releases), keep its DLLs beside `llama-server.exe`, then use **Use NVIDIA GPU runtime…** in Settings → AI models to select that executable. Alter starts it with up to 99 GPU layers; reduce context or switch back to the included CPU runtime if allocation fails. Confirm actual dedicated VRAM first. The app ZIP ships a CPU runtime so low-end PCs work without CUDA. A manual CPU alternative from PowerShell is:
 
    ```powershell
-   .\llama-server.exe -m 'C:\path\Qwen3-0.6B-Q4_K_M.gguf' --host 127.0.0.1 --port 8080 -c 2048 -ngl 0
+   .\llama-server.exe -m 'C:\path\Qwen3-0.6B-Q8_0.gguf' --host 127.0.0.1 --port 8080 -c 2048 -ngl 0
    ```
 
    For your GPU, try the 4B quantization with `-c 4096 -ngl 99`, then reduce layers/context if allocation fails. Reserve memory for Windows, UI, KV cache and runtime workspaces; weights fitting in VRAM does not establish total memory fit. Check actual dedicated memory with Task Manager or `nvidia-smi`; shared/virtual memory is not dedicated VRAM.
-4. Start Alter, open Settings → AI models and save the same local port. Send a short prompt in Alter AI. Test Stop, a failed/stopped server, persisted replies after restart and fully offline operation. Non-thinking mode is requested, bounded output is used, and thought blocks are removed before persistence.
+4. Download Whisper Tiny or Base and select it for voice. In Alter AI, tap **Mic**, speak, then **Stop mic**. Review the transcript before sending. Hindi/Hinglish quality needs real microphone acceptance. Android accessibility insertion and assistant bubble are pending.
 
 Compare cold start, time to first answer, tokens/second, peak system/VRAM and actual English/Hindi/Hinglish task quality. Use the small model as an explicit low-memory choice, never silent cloud fallback. Embeddings, editor model, ASR and TTS need separate acceptance; downloading a chat model does not install those features.

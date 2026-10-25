@@ -25,6 +25,10 @@ jobs:
       - name: Windows checks and native application image
         if: runner.os == 'Windows'
         run: .\gradlew.bat test createDistributable
+      - name: Build verified Windows inference runtimes
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: .\scripts\build_native_windows.ps1
       - name: Upload runnable Windows app
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
