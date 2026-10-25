@@ -24,7 +24,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             packageName = "Alter"
             packageVersion = "0.1.0"
-            modules("java.sql", "java.net.http", "jdk.unsupported")
+            modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
             windows { menuGroup = "Alter"; shortcut = true }
         }
     }

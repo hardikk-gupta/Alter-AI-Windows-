@@ -13,6 +13,12 @@ import java.security.MessageDigest
 import kotlin.test.*
 
 class DesktopTest {
+    @Test fun hardwareRecommendationKeepsSmallPcsUsable() {
+        assertEquals("qwen-small", HardwareBudget(8L shl 30, 4).suggestedTextId)
+        assertEquals(100L, HardwareBudget(8L shl 30, 4).renderFrameMillis)
+        assertEquals("qwen-4b", HardwareBudget(16L shl 30, 8).suggestedTextId)
+        assertEquals(50L, HardwareBudget(16L shl 30, 8).renderFrameMillis)
+    }
     @Test fun reviewedModelsRequireCorrectBytesAndDigest() {
         assertEquals(models.size, models.map { it.id }.distinct().size)
         models.forEach { spec ->

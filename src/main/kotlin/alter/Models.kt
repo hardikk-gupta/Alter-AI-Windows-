@@ -35,6 +35,18 @@ val models = listOf(
 
 fun modelPath(spec: ModelSpec, root: Path = defaultDataDirectory()): Path = root.resolve("models").resolve(spec.file)
 
+data class HardwareBudget(val ramBytes: Long, val processors: Int) {
+    val suggestedTextId get() = if (ramBytes < 12L * 1024 * 1024 * 1024) "qwen-small" else "qwen-4b"
+    val renderFrameMillis get() = if (processors <= 4 || ramBytes < 8L * 1024 * 1024 * 1024) 100L else 50L
+}
+
+fun hardwareBudget(): HardwareBudget {
+    val operatingSystem = java.lang.management.ManagementFactory.getOperatingSystemMXBean()
+    val memory = (operatingSystem as? com.sun.management.OperatingSystemMXBean)?.totalMemorySize
+        ?: 8L * 1024 * 1024 * 1024
+    return HardwareBudget(memory, Runtime.getRuntime().availableProcessors())
+}
+
 fun verified(spec: ModelSpec, root: Path = defaultDataDirectory()): Boolean {
     val path = modelPath(spec, root)
     if (!Files.isRegularFile(path) || Files.size(path) != spec.bytes) return false
@@ -55,6 +67,9 @@ suspend fun downloadModel(spec: ModelSpec, progress: (Long, Long) -> Unit,
     val target = modelPath(spec, root)
     Files.createDirectories(target.parent)
     if (verified(spec, root)) return@withContext target
+    require(Files.getFileStore(target.parent).usableSpace >= spec.bytes + 300_000_000L) {
+        "There is not enough free space for this model and its temporary download."
+    }
     val part = target.resolveSibling(target.fileName.toString() + ".part")
     // Only immutable official Hugging Face links and their model-CDN redirects are accepted.
     var uri = URI(spec.url)

@@ -114,6 +114,7 @@ private fun AlterApp(store: Store, active: Boolean) {
     var speaking by remember { mutableStateOf(false) }
     val installed = remember(installedVersion) { models.associateWith { isRegularFile(modelPath(it)) && Files.size(modelPath(it)) == it.bytes } }
     val pond = remember { ShoalSimulation() }
+    val hardware = remember { hardwareBudget() }
     val dark = theme == "Pitch Black" || (theme == "Device" && isSystemInDarkTheme())
     val satoshi = remember {
         runCatching {
@@ -225,6 +226,8 @@ private fun AlterApp(store: Store, active: Boolean) {
                             "AI models" -> {
                                 Text("On this PC", style = MaterialTheme.typography.titleLarge)
                                 Text("Download one text model, then tap Use model. Speech models are separate. Models stay in Alter's private data folder and work offline after installation.")
+                                Text("This PC: about ${hardware.ramBytes / (1024 * 1024 * 1024)} GB RAM · ${hardware.processors} CPU threads. Suggested text model: ${models.first { it.id == hardware.suggestedTextId }.title}.",
+                                    style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .65f))
                                 if (modelStatus.isNotBlank()) Text(modelStatus, color = AlterYellow)
                                 var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
                                 Text("Inference: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
@@ -248,6 +251,7 @@ private fun AlterApp(store: Store, active: Boolean) {
                                         verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text(spec.title, style = MaterialTheme.typography.titleMedium)
                                         Text(spec.description, style = MaterialTheme.typography.bodySmall)
+                                        if (spec.id == hardware.suggestedTextId) Text("Suggested for this PC", color = AlterYellow, style = MaterialTheme.typography.bodySmall)
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             if (installed[spec] == true) {
                                                 if (spec.kind == "text") Button(enabled = modelWork == null, onClick = {
@@ -289,7 +293,12 @@ private fun AlterApp(store: Store, active: Boolean) {
                             }
                             "Voice & files" -> Text("Tap Mic in Alter AI to record, then Stop mic to transcribe with a downloaded Whisper model. Review the transcript before sending. File attachment, retrieval and system hotkeys need later Windows adapters.")
                             "Backup & account" -> Text("Records are stored privately on this PC. Android ZIP v2 import/export and desktop Google authorization are pending. Do not copy an Android database into this app.")
-                            "About" -> Text("Alter for Windows · first desktop increment\nAndroid reference: 0bda3d8583d1f53b6f305e1eeb22628c17a08e66\nLocal notes, memories, tasks and chat history. See the parity ledger for pending features.")
+                            "About" -> {
+                                Text("Alter for Windows · development build\nAndroid reference: 0bda3d8583d1f53b6f305e1eeb22628c17a08e66")
+                                Text("Updates replace the app folder. Your records and downloaded models stay under your Windows user profile.")
+                                TextButton(onClick = { attempt { java.awt.Desktop.getDesktop().browse(java.net.URI(
+                                    "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("Check for a newer build") }
+                            }
                         }
                     } else if (destination == Destination.Chat) {
                         val listState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -486,22 +495,26 @@ private fun River(pond: ShoalSimulation, visible: Boolean, animate: Boolean, opa
     var dimensions by remember { mutableStateOf(IntSize.Zero) }
     var image by remember { mutableStateOf<ImageBitmap?>(null) }
     val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val frameMillis = remember { hardwareBudget().renderFrameMillis }
     val renderer = remember { KoiAsciiRenderer() }
     DisposableEffect(Unit) { onDispose { renderer.close() } }
     LaunchedEffect(visible, animate, dimensions, density, opacity, dark) {
         if (!visible || dimensions.width == 0 || dimensions.height == 0) return@LaunchedEffect
         synchronized(pond) { pond.resize(dimensions.width / density, dimensions.height / density) }
+        val scale = minOf(1f, 1200f / dimensions.width, 900f / dimensions.height)
+        val renderWidth = (dimensions.width * scale).toInt().coerceAtLeast(1)
+        val renderHeight = (dimensions.height * scale).toInt().coerceAtLeast(1)
         do {
             image = withContext(Dispatchers.Default) {
-                val bitmap = Bitmap.createBitmap(dimensions.width, dimensions.height, Bitmap.Config.ARGB_8888)
+                val bitmap = Bitmap.createBitmap(renderWidth, renderHeight, Bitmap.Config.ARGB_8888)
                 synchronized(pond) {
-                    if (animate) pond.update(.05f)
-                    RiverCanvas(bitmap).use { renderer.draw(it, pond, dimensions.width.toFloat(), dimensions.height.toFloat(), density, opacity, dark) }
+                    if (animate) pond.update(frameMillis / 1000f)
+                    RiverCanvas(bitmap).use { renderer.draw(it, pond, renderWidth.toFloat(), renderHeight.toFloat(), density * scale, opacity, dark) }
                 }
                 bitmap.image.toComposeImageBitmap()
             }
             if (!animate) break
-            delay(50)
+            delay(frameMillis)
         } while (isActive)
     }
     Box(Modifier.fillMaxSize().onSizeChanged { dimensions = it }
