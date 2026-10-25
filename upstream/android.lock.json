@@ -1,0 +1,48 @@
+{
+  "repository": "hardikk-gupta/ALTER-AI-code-base",
+  "acceptedSha": "0bda3d8583d1f53b6f305e1eeb22628c17a08e66",
+  "scope": "Initial reference; no automated updates or cross-repository notifications configured",
+  "files": [
+    {
+      "source": "app/src/main/java/com/example/data/TaskText.kt",
+      "destination": "src/main/kotlin/com/example/data/TaskText.kt",
+      "sha256": "3e11393e2702a93739d01c0da46a919ec6ced06d4492a0c0135ae0e92ef2ab8f"
+    },
+    {
+      "source": "app/src/main/java/com/example/ui/ShoalSimulation.kt",
+      "destination": "src/main/kotlin/com/example/ui/ShoalSimulation.kt",
+      "sha256": "5a887095b5da30d449733b7825af08336235bf416ae09ebce23ec8dcff328691"
+    },
+    {
+      "source": "app/src/main/assets/ALTER_INSTRUCTIONS.md",
+      "destination": "src/main/resources/ALTER_INSTRUCTIONS.md",
+      "sha256": "4b659a6e117c3eb1e68c010ebb2fe5d3c67204dfa41c8691f99d1f1aa2e2af9d"
+    },
+    {
+      "source": "app/src/main/java/com/example/ui/theme/Color.kt",
+      "destination": "src/main/kotlin/com/example/ui/theme/Color.kt",
+      "sha256": "31c7ad42490e81f9f5f6178d2e3d8f192ad15d96172cdcfe567b0b25cbd10e77"
+    },
+    {
+      "source": "docs/SATOSHI_LICENSE.txt",
+      "destination": "docs/SATOSHI_LICENSE.txt",
+      "sha256": "145e7fe2429a3336ba215c070ef722000e01348a3e1baaa127e871bb5012f554"
+    },
+    {
+      "source": "scripts/satoshi_fonts.json",
+      "destination": "scripts/satoshi_fonts.json",
+      "sha256": "29e06de52716552bf740cda93a8978aab4b2e1810f490c64e3962e507f6e54ee"
+    },
+    {
+      "source": "app/src/main/java/com/example/ui/KoiAsciiRenderer.kt",
+      "destination": "src/main/kotlin/com/example/ui/KoiAsciiRenderer.kt",
+      "adaptation": "Android graphics imports replaced with Java2D adapter; shape and sampling logic preserved",
+      "sha256": "548e267f65a6d4cf2cd09afa5bebaa757112ada6287cada888e9b8c800c6effd"
+    },
+    {
+      "source": "app/src/main/java/com/example/ui/LucideIcons.kt",
+      "destination": "src/main/kotlin/com/example/ui/LucideIcons.kt",
+      "sha256": "92eba5bdbdf843748062e83f0ed00b0a0cec008823a04ea8f765934a00575bd7"
+    }
+  ]
+}

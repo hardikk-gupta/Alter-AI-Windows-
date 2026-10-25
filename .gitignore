@@ -1,0 +1,10 @@
+.gradle/
+.kotlin/
+build/
+*.db
+*.db-shm
+*.db-wal
+.env
+local.properties
+src/main/resources/fonts/*
+!src/main/resources/fonts/.gitkeep

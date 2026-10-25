@@ -1,0 +1,52 @@
+[
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Light.otf",
+    "file": "satoshi_light.otf",
+    "sha256": "f9b532a143181bc76adf9fd5968708c502c807acf7b7b1f0a0d46aba293dd2ba"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-LightItalic.otf",
+    "file": "satoshi_light_italic.otf",
+    "sha256": "52d316ba2bfbd45baa6a704b9d2a9db55f735703fda382328d44ca0b4568504e"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Regular.otf",
+    "file": "satoshi_regular.otf",
+    "sha256": "711c6243cdc5431f9cc966e4de18bfb940365bad81acffd1e7948dbe3f254386"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Italic.otf",
+    "file": "satoshi_regular_italic.otf",
+    "sha256": "8be5ca91c666e7f697c8db93f1ccf00adbdae7b9309df912ae550371206dddc4"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Medium.otf",
+    "file": "satoshi_medium.otf",
+    "sha256": "93330866d109f6b2e298748958ec6fa4010cacef586783f281a0b268cab7fc6e"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-MediumItalic.otf",
+    "file": "satoshi_medium_italic.otf",
+    "sha256": "9fe8f9b50e84e26dd37641acbc1ee60c8466ecd087213594133d2c29ff73ed57"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Bold.otf",
+    "file": "satoshi_bold.otf",
+    "sha256": "50e4f9b7c1864c50761d729d6001bfac708c80457fa6fc41559a8ab1bd2573ff"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-BoldItalic.otf",
+    "file": "satoshi_bold_italic.otf",
+    "sha256": "b7ae114a1ac1850676e4c89e83ecc4e784409c4044b27622ae042912cc13b864"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-Black.otf",
+    "file": "satoshi_black.otf",
+    "sha256": "49bdb8b9436b8b9192f6f14b7ce4b96d1a3822e13c504c00c0b2842357d265cc"
+  },
+  {
+    "member": "Satoshi_Complete/Fonts/OTF/Satoshi-BlackItalic.otf",
+    "file": "satoshi_black_italic.otf",
+    "sha256": "452bb2dbf019bcd8efe0f0d5f1697574643cf65bc522b7e3c18b84d89be5a8ba"
+  }
+]
