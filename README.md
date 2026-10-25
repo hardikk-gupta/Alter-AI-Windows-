@@ -4,6 +4,12 @@ First desktop increment of Alter, referenced to [Android main at 0bda3d8](https:
 
 This build provides the five product destinations, local memories, notes, checkbox tasks, search, editing/deletion, themes and a shared river. Local chat connects to a user-started llama.cpp server. See [parity and limits](docs/ANDROID_PARITY.md); this is not full Android parity.
 
+## Download the runnable app
+
+Open [Desktop source checks in GitHub Actions](https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml), select the latest successful run on `main`, and download the **Alter-Windows** artifact near the bottom of the run page. Extract the ZIP completely, then open `Alter.exe` inside the extracted folder on Windows. Keep the extracted files together; the app image includes its Java runtime. This is a portable development build, not a signed installer. GitHub may require you to sign in to see repository artifacts.
+
+If the Windows job has not passed or no artifact appears, use the source steps below while the packaging failure is fixed. The [source ZIP](https://github.com/hardikk-gupta/Alter-AI-Windows-/archive/refs/heads/main.zip) contains code, not a runnable app.
+
 ## Run on Windows
 
 Install a **JDK 21** (not just a JRE) and Python 3. From PowerShell in this checkout:

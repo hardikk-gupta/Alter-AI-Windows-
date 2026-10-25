@@ -25,3 +25,10 @@ jobs:
       - name: Windows checks and native application image
         if: runner.os == 'Windows'
         run: .\gradlew.bat test createDistributable
+      - name: Upload runnable Windows app
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Alter-Windows
+          path: build/compose/binaries/main/app/Alter/
+          if-no-files-found: error

@@ -1,5 +1,9 @@
 # Changes
 
+## Download handoff
+
+- Windows CI now uploads its `createDistributable` app image as the `Alter-Windows` Actions artifact only after Windows tests and packaging pass. README explains extraction and launch. This is an unsigned development app image; a signed installer and Windows hardware acceptance are still outstanding.
+
 ## 25 October 2026 — first desktop increment
 
 - Recorded Android merged-main reference `0bda3d8583d1f53b6f305e1eeb22628c17a08e66` and source hashes. Brought over pure task parsing, shoal simulation, icon vectors, theme colors and exact runtime personality; added a Java2D renderer adapter.
