@@ -61,6 +61,7 @@ fun main(args: Array<String>) {
     }
     application {
         Window(onCloseRequest = { store.close(); exitApplication() }, title = "Alter",
+            icon = painterResource("alter-window.png"),
             state = rememberWindowState(width = 1024.dp, height = 760.dp)) {
             window.minimumSize = Dimension(650, 540)
             var isVisible by remember { mutableStateOf(true) }

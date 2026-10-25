@@ -3,6 +3,7 @@
 ## Windows installer
 
 - Added an unsigned per-user MSI artifact alongside the portable app image. The installer adds Alter to the Start menu and retains a stable upgrade identity for later versioned releases.
+- Set the Windows executable, installer and shortcut icon from Alter's existing Android launcher mark (`ic_launcher.webp` at the pinned reference SHA), preserving the yellow face on its dark background.
 - Windows CI builds the installer after adding the pinned local text and voice engines and inspects the MSI file table for both executables. README now distinguishes installation from extracting the portable ZIP.
 - Version bumped to 0.1.1. Windows installation, upgrade behavior and SmartScreen presentation still need a physical Windows acceptance check.
 

@@ -26,6 +26,7 @@ compose.desktop {
             packageVersion = "0.1.1"
             modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
             windows {
+                iconFile.set(project.file("packaging/alter.ico"))
                 menuGroup = "Alter"
                 menu = true
                 shortcut = true

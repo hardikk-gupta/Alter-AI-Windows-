@@ -33,9 +33,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          .\gradlew.bat packageMsi
-          if ($LASTEXITCODE -ne 0) { throw "MSI packaging failed" }
-          .\scripts\verify_windows_installer.ps1
+          .\gradlew.bat packageMsi *> installer-build.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content installer-build.log -Tail 45) -join '%0A'
+            Write-Host "::error title=MSI packaging failed::$tail"
+            throw "MSI packaging failed"
+          }
+          Get-Content installer-build.log -Tail 15
+          try { .\scripts\verify_windows_installer.ps1 }
+          catch {
+            Write-Host "::error title=MSI verification failed::$($_.Exception.Message)"
+            throw
+          }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
