@@ -2,6 +2,7 @@ package alter
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
@@ -15,7 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.awt.ComposeWindow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -97,6 +100,8 @@ private fun AlterApp(store: Store, active: Boolean) {
     var search by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf<AlterCard?>(null) }
     var delete by remember { mutableStateOf<AlterCard?>(null) }
+    var captureOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(destination, settings) { captureOpen = false }
     var error by remember { mutableStateOf<String?>(null) }
     var prompt by remember { mutableStateOf("") }
     var generation by remember { mutableStateOf<Job?>(null) }
@@ -147,7 +152,7 @@ private fun AlterApp(store: Store, active: Boolean) {
         }
     }
     MaterialTheme(colorScheme = colors, typography = typography) {
-        Surface(Modifier.fillMaxSize()) {
+        Surface(Modifier.fillMaxSize(), color = colors.background) {
             val content = cards.filter { card -> when (destination) {
                 Destination.Memories -> card.type == "text"
                 Destination.Notes -> card.type == "note"
@@ -180,8 +185,29 @@ private fun AlterApp(store: Store, active: Boolean) {
                     }
                     if (settings != null) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         when (settings) {
-                            "root" -> listOf("Appearance", "AI models", "Voice & files", "Backup & account", "About").forEach { name ->
-                                OutlinedButton(onClick = { settings = name }, Modifier.fillMaxWidth()) { Text(name) }
+                            "root" -> {
+                                Text("Make Alter yours", style = MaterialTheme.typography.titleLarge)
+                                Text("Your workspace, models and privacy stay under your control.", color = colors.onSurface.copy(alpha = .65f))
+                                Spacer(Modifier.height(12.dp))
+                                listOf(
+                                    Triple("Appearance", "Theme and motion", Lucide.Settings),
+                                    Triple("AI models", "Download local text and speech models", Lucide.Sparkles),
+                                    Triple("Voice & files", "Dictation and desktop capabilities", Lucide.FileText),
+                                    Triple("Backup & account", "Local data and portability", Lucide.Memories),
+                                    Triple("About", "Build and source reference", Lucide.Home)
+                                ).forEach { (name, description, icon) ->
+                                    Row(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
+                                        .clickable { settings = name }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Box(Modifier.size(38.dp).background(AlterYellow.copy(alpha = .08f), RoundedCornerShape(10.dp)),
+                                            contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(20.dp), AlterYellow) }
+                                        Spacer(Modifier.width(14.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(name, style = MaterialTheme.typography.titleMedium)
+                                            Text(description, style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .6f))
+                                        }
+                                        Icon(Lucide.ChevronRight, null, Modifier.size(18.dp), colors.onSurface.copy(alpha = .45f))
+                                    }
+                                }
                             }
                             "Appearance" -> {
                                 Text("Theme", style = MaterialTheme.typography.titleLarge)
@@ -326,9 +352,35 @@ private fun AlterApp(store: Store, active: Boolean) {
                                 attempt { store.save(completeCardTask(card, text)); cards = store.cards() }
                             }) }
                         }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            FilledTonalButton(onClick = { draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else if (destination == Destination.Notes) "note" else "text", rawInput = "", processedContent = "") },
-                                shape = RoundedCornerShape(20.dp)) { Icon(Lucide.Plus, "Add"); Spacer(Modifier.width(8.dp)); Text("Capture") }
+                    }
+                }
+                if (settings == null && destination != Destination.Chat) {
+                    Column(Modifier.align(Alignment.BottomEnd).padding(end = 32.dp, bottom = 24.dp),
+                        horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        AnimatedVisibility(captureOpen,
+                            enter = fadeIn(tween(180)) + scaleIn(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(220)),
+                            exit = fadeOut(tween(140)) + scaleOut(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(180))) {
+                            Column(Modifier.background(colors.surface, RoundedCornerShape(18.dp))
+                                .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(8.dp)) {
+                                listOf(Triple("Memory", "text", Lucide.Memories),
+                                    Triple("Note", "note", Lucide.FileText),
+                                    Triple("Task", "upcoming", Lucide.Calendar)).forEach { (label, type, icon) ->
+                                    Row(Modifier.width(156.dp).height(46.dp).clickable {
+                                        captureOpen = false
+                                        draft = AlterCard(type = type, rawInput = "", processedContent = "")
+                                    }.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(icon, null, Modifier.size(20.dp), AlterYellow)
+                                        Spacer(Modifier.width(12.dp)); Text(label)
+                                    }
+                                }
+                            }
+                        }
+                        val rotation by animateFloatAsState(if (captureOpen) 45f else 0f, label = "Capture button")
+                        FilledIconButton(onClick = { captureOpen = !captureOpen },
+                            modifier = Modifier.size(52.dp), shape = RoundedCornerShape(16.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(containerColor = AlterYellow, contentColor = PitchBlack)) {
+                            Icon(Lucide.Plus, if (captureOpen) "Close capture actions" else "Add capture",
+                                Modifier.size(24.dp).graphicsLayer { rotationZ = rotation })
                         }
                     }
                 }

@@ -5,6 +5,9 @@
 - Moved navigation into the designer-requested left panel while retaining Alter's icons, Satoshi and palette. Fixed startup animation state by pausing only when hidden/minimized and moved river rendering off the UI thread; retained upstream fish behavior and ASCII sampling. Linux desktop screenshots at two times differ, confirming animation advances.
 - Added official Qwen3 0.6B Q8_0 / 4B Q4_K_M and multilingual Whisper Tiny/Base model entries with immutable source revisions, exact sizes and SHA-256 values. In-app downloads verify before activation; Windows CI builds pinned CPU llama.cpp and whisper.cpp runtimes for the app artifact. No weights are bundled.
 - Added local text model startup and explicit microphone → Whisper transcription → reviewable prompt. GPU inference, physical Windows speech quality and complete Android agent/voice parity still need acceptance.
+- Replaced the labeled Capture capsule with the designer-requested plus-only control. Its supported actions expand and return at that button's lower-corner anchor.
+- Corrected the root Compose Surface to use pitch-black background explicitly; the default Material surface had made the entire desktop workspace gray (#18181B). Sidebar and card surfaces retain the gray token.
+- Linux checks after the capture and color correction: 7 tests passed, 0 skipped/failed; internal UI run succeeded. Sampled screenshot pixels confirm main workspace `#000000` and sidebar `#18181B`.
 - Linux checks: `./gradlew test` passed 7 tests, 0 failures/skips; model catalog and digest checks are included. Internal desktop UI run completed and two screenshots taken 3.5 seconds apart had different SHA-256 values, confirming the fish animation advances. Windows native runtimes and physical microphone remain untested here.
 
 ## Download handoff
