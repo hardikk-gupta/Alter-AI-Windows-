@@ -5,6 +5,8 @@
 - Rebuilt the bundled llama.cpp and whisper.cpp engines with a portable CPU target instead of the CI runner's native instruction set, and linked the Windows C runtime statically. CI now starts each packaged executable with `--version` before publishing the MSI. This addresses a likely cause of startup exits on laptops with different CPUs; the exact failure on the user's PC still requires the runtime log.
 - Model startup failures now report the Windows exit code or a brief log-based diagnosis, offer **Open runtime log** in the app, and clear the stale “Verifying and loading…” status. Version increased to 0.1.2 so the MSI upgrades 0.1.1.
 - Added an interactive HTML design review and screenshots for Home, Alter AI, Memories, Upcoming, Notes, Appearance, AI models, About and the plus menu. These use sample content and do not replace the native UI pending review.
+- Applied the approved visual direction to the native Compose app: responsive 234px/64px navigation, structured Home hero and empty state, calmer content cards, local-first status, grouped settings navigation, clearer model cards and a focused chat layout. The pitch-black canvas, gray surfaces, Alter yellow, existing logo, river rules and plus-only capture remain the product foundation.
+- Increased the installer version to 0.1.3 for the native visual update; installing it upgrades 0.1.2 without removing local data or downloaded models.
 
 ## Windows installer
 

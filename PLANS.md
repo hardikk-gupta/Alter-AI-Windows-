@@ -8,6 +8,6 @@
 
 Windows CI now packages an unsigned per-user MSI with a Start menu entry and stable upgrade identity. Each future release must increase `packageVersion`; automatic update checks, signing and real Windows install/upgrade acceptance remain pending.
 
-Review `design/desktop-review.html` and its screen images with the designer, then translate accepted tokens/layouts into Compose Desktop. The prototype uses sample content, so native empty states and the existing river visibility rules need separate visual acceptance. The 0.1.2 portable CPU runtime still needs a real Windows retry with the user's Qwen model and runtime log if it fails.
+The designer approved `design/desktop-review.html`; its tokens and primary layouts are implemented in Compose Desktop. Continue refining from real saved data and Windows DPI/input acceptance. The 0.1.2 portable CPU runtime still needs a real Windows retry with the user's Qwen model and runtime log if it fails.
 
 Target hardware: low-end CPU PCs as well as the user's Ryzen 7000 HS, RTX 4050, 16 GB RAM system. The reported “4 GB virtual” is not established dedicated GPU memory. Detect/confirm available VRAM before selecting GPU layers. No Windows speed/quality benchmark has run in Linux.

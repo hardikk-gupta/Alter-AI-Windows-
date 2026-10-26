@@ -24,7 +24,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             appResourcesRootDir.set(project.layout.buildDirectory.dir("package-resources"))
             packageName = "Alter"
-            packageVersion = "0.1.2"
+            packageVersion = "0.1.3"
             modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
             windows {
                 iconFile.set(project.file("packaging/alter.ico"))
