@@ -1,6 +1,6 @@
 # Android parity ledger
 
-Reference SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
+Original copied-source SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
 
 | Capability | Status | Evidence / remaining acceptance |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ Reference SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
 | Navigation/card/typography vocabulary | Platform-adapted | Upstream tokens/icons/logo, verified official Satoshi; designer review pending |
 | Capture anchor motion/directional transitions | Pending | Bottom anchor retained; animation parity not yet implemented |
 | Chat personality and local provider | Platform-adapted | Exact instruction asset; pinned verified GGUF download, bundled CPU runtime; real Windows performance pending |
+| Searchable multi-session chat and composer model menu | Platform-adapted | Reviewed Android main `5b05604861a3e7d236b820e603c620deea61fe93`. Desktop uses SQLite thread IDs, saved Favorites/Archive and the bundled Qwen/Whisper providers. Legacy messages migrate together. |
 | Cloud provider/agent tools/preferences/semantic retrieval | Pending | UI explicitly states limitations; no fake action execution |
 | Rich note blocks/canvas/attachments | Pending | No claim of full data compatibility |
 | ZIP v2 Android↔Windows backup | Pending | Requires digest/media/traversal/duplicate fixtures and reciprocal tests |
@@ -19,3 +20,5 @@ Reference SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
 | Windows hotkeys/tray/notifications/insertion | Pending | No Android service copying |
 | Android change-notification issues | Pending configuration | Source tracked only; no sender/receiver/secrets or external messages created |
 | Windows native packaging/signing | Pending acceptance | CI packages an unsigned MSI with bundled inference engines; physical install/upgrade and signing pending |
+
+The November Android reference also includes richer note blocks, Parakeet speech, MCP plugins, opt-in Firebase sync and revised spacing. Those Android capabilities require separate Windows adapters. The desktop model menu uses the reviewed Windows GGUF catalog.

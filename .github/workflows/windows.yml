@@ -45,6 +45,21 @@ jobs:
             Write-Host "::error title=MSI verification failed::$($_.Exception.Message)"
             throw
           }
+      - name: Cache verified Qwen test weights
+        if: runner.os == 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/alter-test-models
+          key: alter-qwen-small-9465e63a
+      - name: Exercise packaged CPU engine with real local chat
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:ALTER_CHECK_PACKAGED_CHAT = "1"
+          $env:ALTER_TEST_MODEL_CACHE = Join-Path $env:RUNNER_TEMP "alter-test-models"
+          $env:ALTER_NATIVE_DIR = (Resolve-Path "build/compose/binaries/main/app/Alter/app/resources/native").Path
+          .\gradlew.bat test --tests alter.PackagedChatTest
+          if ($LASTEXITCODE -ne 0) { throw "Packaged local chat failed." }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4

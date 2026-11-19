@@ -44,5 +44,15 @@
       "destination": "src/main/kotlin/com/example/ui/LucideIcons.kt",
       "sha256": "92eba5bdbdf843748062e83f0ed00b0a0cec008823a04ea8f765934a00575bd7"
     }
-  ]
+  ],
+  "dashboardReview": {
+    "sha": "5b05604861a3e7d236b820e603c620deea61fe93",
+    "paths": [
+      "app/src/main/java/com/example/ui/AlterAiChatScreen.kt",
+      "app/src/main/java/com/example/ui/AsciiChatComposer.kt",
+      "DESIGN_SYSTEM.md",
+      "CHANGES.md"
+    ],
+    "adaptation": "Desktop conversation history and local model menu; existing copied sources retain their acceptedSha."
+  }
 }

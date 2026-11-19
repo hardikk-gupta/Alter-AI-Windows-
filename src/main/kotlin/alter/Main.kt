@@ -13,9 +13,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.awt.ComposeWindow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.toComposeImageBitmap
@@ -37,7 +36,6 @@ import com.example.ui.theme.*
 import kotlinx.coroutines.*
 import java.awt.Dimension
 import java.awt.Desktop
-import java.awt.Font
 import java.awt.Rectangle
 import java.awt.Robot
 import java.awt.event.WindowAdapter
@@ -52,8 +50,6 @@ import javax.imageio.ImageIO
 import alter.graphics.Bitmap
 import alter.graphics.Canvas as RiverCanvas
 
-private enum class Destination(val title: String) { Home("Home"), Chat("Alter AI"), Memories("Memories"), Upcoming("Upcoming"), Notes("Notes") }
-
 fun main(args: Array<String>) {
     val store = Store(defaultDataDirectory())
     val preview = args.firstOrNull { it.startsWith("--preview=") }?.substringAfter('=')
@@ -65,7 +61,8 @@ fun main(args: Array<String>) {
     application {
         Window(onCloseRequest = { store.close(); exitApplication() }, title = "Alter",
             icon = painterResource("alter-window.png"),
-            state = rememberWindowState(width = 1280.dp, height = 800.dp)) {
+            state = rememberWindowState(width = 1280.dp, height = 800.dp, position =
+                if ("--screenshot" in args) WindowPosition(0.dp, 0.dp) else WindowPosition.PlatformDefault)) {
             window.minimumSize = Dimension(650, 540)
             var isVisible by remember { mutableStateOf(true) }
             DisposableEffect(window) {
@@ -96,19 +93,27 @@ fun main(args: Array<String>) {
 @Composable
 private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     val scope = rememberCoroutineScope()
-    var destination by remember { mutableStateOf(Destination.entries.firstOrNull { it.name.equals(preview, true) } ?: Destination.Home) }
+    var destination by remember { mutableStateOf(Destination.entries.firstOrNull { it.name.equals(preview, true) } ?: if (preview == "capture") Destination.Home else Destination.Chat) }
     var settings by remember { mutableStateOf<String?>(when (preview) {
-        "models" -> "AI models"; "appearance" -> "Appearance"; "about" -> "About"; else -> null
+        "models" -> "AI models"; "appearance" -> "Appearance"; "about" -> "About"
+        "voice" -> "Voice & files"; "backup" -> "Backup & account"; else -> null
     }) }
     var theme by remember { mutableStateOf(store.setting("theme", "Pitch Black")) }
     var reducedMotion by remember { mutableStateOf(store.setting("reducedMotion", "false").toBoolean()) }
     var cards by remember { mutableStateOf(store.cards()) }
-    var messages by remember { mutableStateOf(store.messages()) }
+    var threads by remember { mutableStateOf(store.threads()) }
+    var threadId by remember { mutableStateOf(threads.firstOrNull { !it.archived }?.id) }
+    var messages by remember { mutableStateOf(threadId?.let(store::messages).orEmpty()) }
+    var historyQuery by remember { mutableStateOf("") }
+    val filteredThreads = remember(threads, messages, historyQuery) {
+        if (historyQuery.isBlank()) threads else store.threads(historyQuery)
+    }
+    val drafts = remember { mutableMapOf<Long?, String>() }
+    var deleteChat by remember { mutableStateOf<ChatThread?>(null) }
     var search by remember { mutableStateOf("") }
     var draft by remember { mutableStateOf<AlterCard?>(null) }
     var delete by remember { mutableStateOf<AlterCard?>(null) }
-    var captureOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(destination, settings) { captureOpen = false }
+    var captureOpen by remember(destination, settings) { mutableStateOf(preview == "capture" && destination == Destination.Home && settings == null) }
     var error by remember { mutableStateOf<String?>(null) }
     var prompt by remember { mutableStateOf("") }
     var generation by remember { mutableStateOf<Job?>(null) }
@@ -121,6 +126,10 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     var installedVersion by remember { mutableIntStateOf(0) }
     var speaking by remember { mutableStateOf(false) }
     val installed = remember(installedVersion) { models.associateWith { isRegularFile(modelPath(it)) && Files.size(modelPath(it)) == it.bytes } }
+    var confirmDownload by remember { mutableStateOf<ModelSpec?>(null) }
+    var activeModel by remember { mutableStateOf<String?>(null) }
+    var voiceModel by remember { mutableStateOf(store.setting("voiceModel")) }
+    var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
     val pond = remember { ShoalSimulation() }
     val hardware = remember { hardwareBudget() }
     val dark = theme == "Pitch Black" || (theme == "Device" && isSystemInDarkTheme())
@@ -139,21 +148,73 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
         onBackground = Color(0xFF111111), outline = Color(0xFFEAEAEA))
     val typography = Typography().let { t -> t.copy(
         headlineSmall = t.headlineSmall.copy(fontFamily = satoshi, fontSize = 26.sp, lineHeight = 34.sp),
+        titleMedium = t.titleMedium.copy(fontFamily = satoshi),
         titleLarge = t.titleLarge.copy(fontFamily = satoshi, fontSize = 20.sp, lineHeight = 28.sp),
         bodyLarge = t.bodyLarge.copy(fontFamily = satoshi, fontSize = 16.sp, lineHeight = 24.sp),
         bodyMedium = t.bodyMedium.copy(fontFamily = satoshi, fontSize = 14.sp, lineHeight = 20.sp),
         labelLarge = t.labelLarge.copy(fontFamily = satoshi), bodySmall = t.bodySmall.copy(fontFamily = satoshi)) }
     fun attempt(action: () -> Unit) { try { action() } catch (e: Exception) { error = e.message ?: "Could not save. Your editor is still open." } }
+    fun openThread(id: Long?) {
+        if (generation != null || speaking || modelWork != null) return
+        drafts[threadId] = prompt
+        threadId = id
+        messages = id?.let(store::messages).orEmpty()
+        prompt = drafts[id].orEmpty()
+        destination = Destination.Chat
+        settings = null
+    }
+    fun activateModel(spec: ModelSpec) {
+        if (modelWork != null || generation != null || speaking) return
+        modelWork = scope.launch {
+            modelStatus = "Loading ${spec.title.substringBefore(" ·")}…"
+            modelStartupFailed = false
+            try {
+                val custom = customRuntime.takeIf(String::isNotBlank)?.let(Path::of)
+                native.start(spec, store.setting("modelPort", "8080").toInt(), custom, if (custom == null) 0 else 99)
+                store.setting("textModel", spec.id, true)
+                activeModel = spec.id
+                error = null
+                modelStatus = "${spec.title.substringBefore(" ·")} is ready."
+            } catch (e: CancellationException) { modelStatus = "Startup cancelled."; throw e }
+            catch (e: Exception) {
+                modelStartupFailed = true
+                modelStatus = "Could not start ${spec.title.substringBefore(" ·")}."
+                error = e.message ?: modelStatus
+            } finally {
+                if (!native.running) activeModel = null
+                modelWork = null
+            }
+        }
+    }
+    fun download(spec: ModelSpec) {
+        if (modelWork != null || speaking) return
+        modelWork = scope.launch {
+            modelStatus = "Downloading ${spec.title.substringBefore(" ·")}…"
+            try {
+                downloadModel(spec, { n, total -> modelStatus = "${spec.title.substringBefore(" ·")} · ${n * 100 / total}%" })
+                installedVersion++
+                modelStatus = "Download complete. Select the model to start it."
+            } catch (e: CancellationException) { modelStatus = "Download cancelled."; throw e }
+            catch (e: Exception) { error = e.message ?: "Model download failed."; modelStatus = "Download failed." }
+            finally { modelWork = null }
+        }
+    }
     fun send() {
-        if (prompt.isBlank() || generation != null) return
-        if (!native.running) { settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
+        if (prompt.isBlank() || generation != null || speaking || modelWork != null) return
+        if (!native.running) { activeModel = null; settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
         val text = prompt.trim()
         attempt {
-            store.addMessage("user", text); messages = store.messages(); prompt = ""
+            val id = store.addMessage(threadId, "user", text)
+            drafts.remove(threadId)
+            threadId = id
+            messages = store.messages(id)
+            val history = messages
+            threads = store.threads()
+            prompt = ""
             generation = scope.launch {
                 try {
-                    val reply = LocalChat(store.setting("modelPort", "8080").toInt()).reply(messages)
-                    store.addMessage("assistant", reply); messages = store.messages()
+                    val reply = LocalChat(store.setting("modelPort", "8080").toInt()).reply(history)
+                    store.addMessage(id, "assistant", reply); messages = store.messages(id); threads = store.threads()
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = "Local model unavailable. ${e.message ?: "Check Model settings."}" }
                 finally { generation = null }
@@ -170,32 +231,74 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             } }
             val showRiver = settings == null && (destination == Destination.Chat || content.isEmpty())
             BoxWithConstraints(Modifier.fillMaxSize().onPreviewKeyEvent {
-                if (it.type == KeyEventType.KeyDown && it.isCtrlPressed && it.key == Key.N && settings == null && destination != Destination.Chat) {
-                    draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else "note", rawInput = "", processedContent = ""); true
+                if (it.type == KeyEventType.KeyDown && it.isCtrlPressed && it.key == Key.N && settings == null) {
+                    if (destination == Destination.Chat) openThread(null)
+                    else draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else "note", rawInput = "", processedContent = "")
+                    true
                 } else false
             }) {
-                val compact = maxWidth < 900.dp
-                Row(Modifier.fillMaxSize()) {
-                Navigation(destination, settings != null, compact, { destination = it; settings = null; search = "" }, { settings = "Appearance" })
-                Box(Modifier.weight(1f).fillMaxHeight()) {
-                River(pond, showRiver, active && !reducedMotion && draft == null,
-                    if (destination == Destination.Chat && messages.isNotEmpty()) .3f else .75f, dark)
-                Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 20.dp else 44.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-                    Row(Modifier.fillMaxWidth().height(78.dp).background(colors.background.copy(alpha = .97f)),
+                val compact = maxWidth < 850.dp
+                val wide = maxWidth >= 1160.dp
+                var sidebar by remember(compact) { mutableStateOf(!compact) }
+                var details by remember(wide) { mutableStateOf(wide) }
+                val canSwitch = generation == null && modelWork == null && !speaking
+                val selectedThread = threads.firstOrNull { it.id == threadId }
+                val sidebarContent = @Composable {
+                    WorkspaceSidebar(settings, threadId.takeIf { settings == null && destination == Destination.Chat },
+                        filteredThreads, historyQuery, { historyQuery = it },
+                        { openThread(null); if (compact) sidebar = false },
+                        { openThread(it); if (compact) sidebar = false }, canSwitch,
+                        { settings = it; if (compact) sidebar = false },
+                        { thread -> attempt { store.updateThread(thread); threads = store.threads() } },
+                        remember(cards) { mapOf(Destination.Memories to cards.count { it.type == "text" },
+                            Destination.Upcoming to cards.count { it.type == "upcoming" }, Destination.Notes to cards.count { it.type == "note" }) },
+                        { destination = it; settings = null; search = ""; if (compact) sidebar = false }, installed.count { it.value })
+                }
+                val detailsContent = @Composable {
+                    WorkspaceDetails(models.find { it.id == activeModel }?.title?.substringBefore(" ·"),
+                        models.find { it.id == voiceModel }?.title?.substringBefore(" ·"),
+                        if (customRuntime.isBlank()) "Included CPU runtime" else "NVIDIA runtime selected",
+                        { settings = "AI models"; if (!wide) details = false })
+                }
+                Column(Modifier.fillMaxSize()) {
+                    Row(Modifier.fillMaxWidth().height(43.dp).background(colors.surface).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("YOUR PRIVATE WORKSPACE", fontSize = 10.sp, letterSpacing = 1.5.sp,
-                                color = colors.onSurface.copy(alpha = .45f), fontWeight = FontWeight.Bold)
-                            Text(if (settings == null) destination.title else if (settings == "root") "Settings" else settings!!,
-                                style = MaterialTheme.typography.headlineSmall)
+                        Box {
+                            WorkspaceButton(Lucide.Menu, "Toggle side panel", sidebar) { sidebar = !sidebar }
+                            if (compact) DropdownMenu(sidebar, { sidebar = false }) {
+                                Box(Modifier.width(245.dp).height(365.dp)) { sidebarContent() }
+                            }
                         }
-                        Row(Modifier.background(colors.surface, RoundedCornerShape(50)).border(1.dp, colors.outline, RoundedCornerShape(50))
-                            .padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(7.dp).background(Color(0xFF83D8AD), RoundedCornerShape(50)))
-                            Spacer(Modifier.width(8.dp))
-                            Text("Local-first", style = MaterialTheme.typography.bodySmall)
+                        if (sidebar && !compact) Spacer(Modifier.width(236.dp))
+                        Text(settings ?: if (destination == Destination.Chat) selectedThread?.title ?: "New chat"
+                            else destination.title, Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 14.sp,
+                            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            fontWeight = FontWeight.Medium)
+                        if (settings == null && destination == Destination.Chat && selectedThread != null && canSwitch)
+                            WorkspaceButton(Lucide.Trash, "Delete chat") { deleteChat = selectedThread }
+                        Box {
+                            WorkspaceButton(Lucide.Info, "Workspace details", details) { details = !details }
+                            if (!wide) DropdownMenu(details, { details = false }) {
+                                Box(Modifier.width(248.dp)) { detailsContent() }
+                            }
                         }
                     }
+                    HorizontalDivider(color = colors.outline)
+                    Row(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxHeight().padding(5.dp).clip(RoundedCornerShape(13.dp))
+                    .background(if (dark) Color(0xFF37363D) else colors.secondaryContainer).padding(end = 5.dp, top = 5.dp, bottom = 5.dp)) {
+                ActivityRail(destination, settings != null, { destination = it; settings = null; search = "" },
+                    { settings = "Appearance"; if (!compact) sidebar = true })
+                if (sidebar && !compact) {
+                    Box(Modifier.width(216.dp)) { sidebarContent() }
+                }
+                }
+                Box(Modifier.weight(1f).fillMaxHeight()) {
+                River(pond, showRiver, active && !reducedMotion && draft == null,
+                    if (destination == Destination.Chat) if (messages.isEmpty()) .40f else .045f else .50f, dark)
+                Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 16.dp else 26.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (settings != null || destination != Destination.Chat) Spacer(Modifier.height(7.dp))
                     if (error != null) Surface(color = MaterialTheme.colorScheme.errorContainer, shape = RoundedCornerShape(12.dp)) {
                         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Text(error!!, Modifier.weight(1f), color = MaterialTheme.colorScheme.onErrorContainer)
@@ -205,43 +308,11 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                             TextButton(onClick = { error = null; modelStartupFailed = false }) { Text("Dismiss") }
                         }
                     }
-                    if (settings != null) Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        Column(Modifier.width(if (compact) 150.dp else 205.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf("Appearance", "AI models", "Voice & files", "Backup & account", "About").forEach { name ->
-                                val selected = settings == name
-                                Text(name, Modifier.fillMaxWidth().background(if (selected) colors.secondaryContainer else Color.Transparent,
-                                    RoundedCornerShape(10.dp)).clickable { settings = name }.padding(13.dp),
-                                    color = if (selected) AlterYellow else colors.onSurface.copy(alpha = .7f), fontSize = 14.sp)
-                            }
-                        }
+                    if (settings != null) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         when (settings) {
-                            "root" -> {
-                                Text("Make Alter yours", style = MaterialTheme.typography.titleLarge)
-                                Text("Your workspace, models and privacy stay under your control.", color = colors.onSurface.copy(alpha = .65f))
-                                Spacer(Modifier.height(12.dp))
-                                listOf(
-                                    Triple("Appearance", "Theme and motion", Lucide.Settings),
-                                    Triple("AI models", "Download local text and speech models", Lucide.Sparkles),
-                                    Triple("Voice & files", "Dictation and desktop capabilities", Lucide.FileText),
-                                    Triple("Backup & account", "Local data and portability", Lucide.Memories),
-                                    Triple("About", "Build and source reference", Lucide.Home)
-                                ).forEach { (name, description, icon) ->
-                                    Row(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
-                                        .clickable { settings = name }.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                                        Box(Modifier.size(38.dp).background(AlterYellow.copy(alpha = .08f), RoundedCornerShape(10.dp)),
-                                            contentAlignment = Alignment.Center) { Icon(icon, null, Modifier.size(20.dp), AlterYellow) }
-                                        Spacer(Modifier.width(14.dp))
-                                        Column(Modifier.weight(1f)) {
-                                            Text(name, style = MaterialTheme.typography.titleMedium)
-                                            Text(description, style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .6f))
-                                        }
-                                        Icon(Lucide.ChevronRight, null, Modifier.size(18.dp), colors.onSurface.copy(alpha = .45f))
-                                    }
-                                }
-                            }
                             "Appearance" -> {
-                                Text("Make Alter yours.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("Appearance", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text("Appearance and motion across your private workspace.", color = colors.onSurface.copy(alpha = .62f))
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(18.dp)) {
@@ -263,13 +334,13 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 }
                             }
                             "AI models" -> {
-                                Text("AI that runs here.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("Local models", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text("Download a model once, then chat or dictate offline. Nothing starts until you choose it.",
                                     color = colors.onSurface.copy(alpha = .66f))
                                 Text("This PC: about ${hardware.ramBytes / (1024 * 1024 * 1024)} GB RAM · ${hardware.processors} CPU threads. Suggested text model: ${models.first { it.id == hardware.suggestedTextId }.title}.",
                                     style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .65f))
                                 if (modelStatus.isNotBlank()) Text(modelStatus, color = AlterYellow)
-                                var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
+
                                 Text("Inference: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TextButton(onClick = { attempt {
@@ -308,40 +379,15 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
                                             if (installed[spec] == true) {
-                                                if (spec.kind == "text") Button(enabled = modelWork == null, onClick = {
-                                                    modelWork = scope.launch {
-                                                        modelStatus = "Verifying and loading ${spec.title}…"
-                                                        modelStartupFailed = false
-                                                        try {
-                                                            val custom = store.setting("cudaServer").takeIf(String::isNotBlank)?.let(Path::of)
-                                                            native.start(spec, store.setting("modelPort", "8080").toInt(), custom,
-                                                                if (custom == null) 0 else 99)
-                                                            store.setting("textModel", spec.id, true)
-                                                            modelStatus = "${spec.title} is ready for offline chat."
-                                                        } catch (e: Exception) {
-                                                            modelStatus = "${spec.title} could not start."
-                                                            modelStartupFailed = true
-                                                            error = e.message ?: "Model startup failed."
-                                                        }
-                                                        finally { modelWork = null }
-                                                    }
-                                                }) { Text(if (native.running && store.setting("textModel") == spec.id) "In use" else "Use model") }
-                                                else Button(onClick = { attempt {
+                                                if (spec.kind == "text") Button(enabled = canSwitch && activeModel != spec.id,
+                                                    onClick = { activateModel(spec) }) { Text(if (activeModel == spec.id) "In use" else "Use model") }
+                                                else Button(enabled = canSwitch, onClick = { attempt {
                                                     require(verified(spec)) { "Speech model checksum did not match. Download again." }
-                                                    store.setting("voiceModel", spec.id, true)
+                                                    store.setting("voiceModel", spec.id, true); voiceModel = spec.id
                                                     modelStatus = "${spec.title} selected for dictation."
                                                 } }) { Text(if (store.setting("voiceModel") == spec.id) "Selected" else "Use for voice") }
-                                            } else Button(enabled = modelWork == null, onClick = {
-                                                modelWork = scope.launch {
-                                                    try {
-                                                        modelStatus = "Downloading ${spec.title}…"
-                                                        downloadModel(spec, { n, total -> modelStatus = "${spec.title}: ${n * 100 / total}%" })
-                                                        installedVersion++
-                                                        modelStatus = "${spec.title} downloaded and verified."
-                                                    } catch (e: CancellationException) { modelStatus = "Download cancelled." }
-                                                    catch (e: Exception) { error = e.message ?: "Model download failed." }
-                                                    finally { modelWork = null }
-                                                }
+                                            } else Button(enabled = canSwitch, onClick = {
+                                                download(spec)
                                             }) { Text("Download") }
                                             TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(spec.page)) } }) {
                                                 Text("Source & licence", style = MaterialTheme.typography.bodySmall)
@@ -350,72 +396,34 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                     }
                                 }
                                 if (modelWork != null) TextButton(onClick = { modelWork?.cancel() }) { Text("Cancel download / startup") }
-                                if (native.running) TextButton(onClick = { native.stop(); modelStatus = "Local model stopped." }) { Text("Release model") }
+                                if (activeModel != null) TextButton(enabled = canSwitch, onClick = { native.stop(); activeModel = null; modelStatus = "Local model stopped." }) { Text("Release model") }
                             }
                             "Voice & files" -> Text("Tap Mic in Alter AI to record, then Stop mic to transcribe with a downloaded Whisper model. Review the transcript before sending. File attachment, retrieval and system hotkeys need later Windows adapters.")
                             "Backup & account" -> Text("Records are stored privately on this PC. Android ZIP v2 import/export and desktop Google authorization are pending. Do not copy an Android database into this app.")
                             "About" -> {
-                                Text("About Alter.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("About Alter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text("Version details and the path to a newer Windows build.", color = colors.onSurface.copy(alpha = .62f))
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("Alter for Windows · 0.1.3", fontWeight = FontWeight.Bold)
+                                    Text("Alter for Windows · 0.1.4", fontWeight = FontWeight.Bold)
                                     Text("Install a newer MSI to upgrade. Your notes and downloaded models stay under your Windows user profile.")
                                     TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(
                                         "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("View latest build ↗") }
                                     HorizontalDivider(color = colors.outline)
-                                    Text("Android design reference · 0bda3d8583d1f53b6f305e1eeb22628c17a08e66",
+                                    Text("Android dashboard reference · 5b05604",
                                         color = colors.onSurface.copy(alpha = .5f), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
                         }
                     } else if (destination == Destination.Chat) {
-                        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-                        LaunchedEffect(messages.size) { if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex) }
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("Alter AI", fontWeight = FontWeight.Bold)
-                                Text("A private conversation on your device", color = colors.onSurface.copy(alpha = .55f),
-                                    style = MaterialTheme.typography.bodySmall)
-                            }
-                            TextButton(onClick = { settings = "AI models" }) {
-                                Text(if (native.running) "●  Local model ready" else "Set up local model ↗")
-                            }
-                        }
-                        HorizontalDivider(color = colors.outline)
-                        LazyColumn(Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp), state = listState,
-                            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                            if (messages.isEmpty()) item { Box(Modifier.fillMaxWidth().height(250.dp), contentAlignment = Alignment.BottomStart) {
-                                Text("What’s on your mind?", Modifier.background(colors.background.copy(alpha = .85f),
-                                    RoundedCornerShape(12.dp)).padding(12.dp), color = colors.onBackground.copy(alpha = .7f))
-                            } }
-                            items(messages) { (sender, text) ->
-                                Box(Modifier.fillMaxWidth(), contentAlignment = if (sender == "user") Alignment.CenterEnd else Alignment.CenterStart) {
-                                    Column(Modifier.widthIn(max = 650.dp).then(if (sender == "user") Modifier.background(colors.secondaryContainer,
-                                        RoundedCornerShape(14.dp)).padding(14.dp) else Modifier.padding(8.dp))) {
-                                        if (sender != "user") Text("✦  ALTER", color = AlterYellow, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        androidx.compose.foundation.text.selection.SelectionContainer {
-                                            Text(text, Modifier.padding(top = if (sender == "user") 0.dp else 8.dp), lineHeight = 21.sp)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            TextButton(enabled = generation == null, onClick = { attempt { store.clearMessages(); messages = store.messages() } }) { Text("New conversation") }
-                            Spacer(Modifier.weight(1f))
-                            Text("Stored on this PC", color = colors.onSurface.copy(alpha = .45f), style = MaterialTheme.typography.bodySmall)
-                        }
-                        Row(Modifier.fillMaxWidth().background(colors.surface.copy(alpha = .94f), RoundedCornerShape(17.dp))
-                            .border(1.dp, colors.outline, RoundedCornerShape(17.dp)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(prompt, { prompt = it.take(16000) }, Modifier.weight(1f).heightIn(max = 160.dp)
-                                .onPreviewKeyEvent { if (it.type == KeyEventType.KeyDown && it.key == Key.Enter && it.isCtrlPressed) { send(); true } else false },
-                                placeholder = { Text("Ask Alter anything… · Ctrl+Enter to send") }, enabled = generation == null,
-                                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color.Transparent,
-                                    focusedBorderColor = Color.Transparent))
-                            TextButton(onClick = {
+                        key(threadId) {
+                            ChatPane(messages, prompt, { prompt = it.take(16000) },
+                                models.find { it.id == activeModel }?.title?.substringBefore(" ·"), installed,
+                                modelWork != null, speaking, generation != null,
+                                if (speaking || modelWork != null) modelStatus else "",
+                                { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, {
                                 if (!recorder.recording) attempt {
                                     val chosen = models.firstOrNull { it.id == store.setting("voiceModel") }
                                         ?: error("Download and select a speech model in AI models first.")
@@ -434,9 +442,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                         finally { modelWork = null }
                                     }
                                 }
-                            }) { Text(if (speaking) "Stop mic" else "Mic") }
-                            if (generation != null) TextButton(onClick = { generation?.cancel() }) { Text("Stop") }
-                            else IconButton(onClick = { send() }, enabled = prompt.isNotBlank()) { Text("→", fontSize = 26.sp) }
+                            }, ::send, { generation?.cancel() })
                         }
                     } else if (destination == Destination.Home) {
                         HomeContent(cards, { destination = Destination.Chat }, { destination = Destination.Upcoming },
@@ -444,18 +450,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 store.save(completeCardTask(card, text)); cards = store.cards()
                             } }, Modifier.weight(1f))
                     } else {
-                        Column {
-                            Text(when (destination) {
-                                Destination.Memories -> "Keep what matters."
-                                Destination.Upcoming -> "One thing at a time."
-                                else -> "Notes for the thinking in between."
-                            }, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                            Text(when (destination) {
-                                Destination.Memories -> "Small details, people, and moments you may want to find again."
-                                Destination.Upcoming -> "Commitments you chose to keep. No dates are invented for you."
-                                else -> "Drafts, plans, and ideas you want to work through."
-                            }, color = colors.onSurface.copy(alpha = .62f), style = MaterialTheme.typography.bodyMedium)
-                        }
+                        Text(destination.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(12.dp)), singleLine = true,
                             placeholder = { Text("Search ${destination.title.lowercase()}") }, leadingIcon = { Icon(Lucide.Search, null) })
                         val filtered = content.filter { (it.rawInput + "\n" + it.processedContent).contains(search, ignoreCase = true) }
@@ -504,8 +499,22 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     }
                 }
                 }
+                if (wide && details) Box(Modifier.width(240.dp).padding(start = 4.dp, end = 12.dp, top = 9.dp)) { detailsContent() }
+                }
                 }
             }
+            confirmDownload?.let { spec -> AlertDialog(onDismissRequest = { confirmDownload = null },
+                title = { Text("Download ${spec.title.substringBefore(" ·")}?") },
+                text = { Text("${spec.description}. After downloading, select the model in the composer to run it on this PC.") },
+                confirmButton = { TextButton(onClick = { confirmDownload = null; settings = "AI models"; download(spec) }) { Text("Download") } },
+                dismissButton = { TextButton(onClick = { confirmDownload = null }) { Text("Cancel") } }) }
+            deleteChat?.let { chat -> AlertDialog(onDismissRequest = { deleteChat = null },
+                title = { Text("Delete this chat?") }, text = { Text(chat.title) },
+                confirmButton = { TextButton(onClick = { attempt {
+                    store.deleteThread(chat.id); drafts.remove(chat.id); threads = store.threads()
+                    if (threadId == chat.id) { threadId = null; messages = emptyList(); prompt = drafts[null].orEmpty() }
+                    deleteChat = null
+                } }) { Text("Delete chat") } }, dismissButton = { TextButton(onClick = { deleteChat = null }) { Text("Cancel") } }) }
             draft?.let { card ->
                 Editor(card, onDismiss = { draft = null }, onSave = { edited -> attempt {
                     store.save(edited); cards = store.cards(); draft = null
@@ -520,54 +529,6 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
 }
 
 @Composable
-private fun Navigation(current: Destination, settings: Boolean, compact: Boolean, select: (Destination) -> Unit, openSettings: () -> Unit) {
-    val icons = listOf(Lucide.Home, Lucide.Sparkles, Lucide.Memories, Lucide.Calendar, Lucide.FileText)
-    val colors = MaterialTheme.colorScheme
-    Column(Modifier.width(if (compact) 64.dp else 234.dp).fillMaxHeight().background(if (colors.background == PitchBlack) SidebarSurface else colors.surface)
-        .border(width = .5.dp, color = colors.outline).padding(horizontal = if (compact) 7.dp else 14.dp, vertical = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(Modifier.fillMaxWidth().height(65.dp).padding(start = if (compact) 10.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource("alter-logo.xml"), "Alter", Modifier.size(28.dp), AlterYellow)
-            if (!compact) { Spacer(Modifier.width(10.dp)); Text("alter", fontSize = 22.sp, fontWeight = FontWeight.Bold) }
-        }
-        if (!compact) Text("WORKSPACE", Modifier.padding(start = 13.dp, top = 12.dp, bottom = 10.dp), fontSize = 10.sp,
-            letterSpacing = 1.4.sp, fontWeight = FontWeight.Bold, color = colors.onSurface.copy(alpha = .45f))
-        Destination.entries.forEachIndexed { i, tab ->
-            val selected = tab == current && !settings
-            Row(Modifier.fillMaxWidth().height(44.dp).semantics { this.selected = selected }
-                .background(if (selected) AlterYellow.copy(alpha = .12f) else Color.Transparent, RoundedCornerShape(11.dp))
-                .clickable(role = Role.Tab) { select(tab) }.padding(horizontal = if (compact) 0.dp else 12.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                if (selected) Box(Modifier.width(3.dp).height(26.dp).background(AlterYellow, RoundedCornerShape(50)))
-                if (compact) Spacer(Modifier.width(if (selected) 12.dp else 15.dp)) else Spacer(Modifier.width(if (selected) 9.dp else 12.dp))
-                Icon(icons[i], tab.title, Modifier.size(18.dp), if (selected) AlterYellow else colors.onSurface.copy(alpha = .6f))
-                if (!compact) {
-                    Spacer(Modifier.width(13.dp))
-                    Text(tab.title, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (selected) colors.onSurface else colors.onSurface.copy(alpha = .7f))
-                }
-            }
-        }
-        Spacer(Modifier.weight(1f))
-        if (!compact) Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(13.dp))
-            .border(1.dp, colors.outline, RoundedCornerShape(13.dp)).padding(13.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(7.dp).background(Color(0xFF83D8AD), RoundedCornerShape(50)))
-                Spacer(Modifier.width(8.dp)); Text("On this PC", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
-            Text("Your notes and models stay local.", fontSize = 11.sp,
-                color = colors.onSurface.copy(alpha = .47f), lineHeight = 15.sp)
-        }
-        Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().height(44.dp).background(if (settings) AlterYellow.copy(alpha = .12f) else Color.Transparent, RoundedCornerShape(11.dp))
-            .clickable(onClick = openSettings).padding(horizontal = if (compact) 14.dp else 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Lucide.Settings, "Settings", Modifier.size(18.dp), if (settings) AlterYellow else colors.onSurface.copy(alpha = .7f))
-            if (!compact) { Spacer(Modifier.width(13.dp)); Text("Settings", fontSize = 14.sp) }
-        }
-    }
-}
-
-@Composable
 private fun HomeContent(cards: List<AlterCard>, onChat: () -> Unit, onUpcoming: () -> Unit,
     onEdit: (AlterCard) -> Unit, onDelete: (AlterCard) -> Unit,
     onComplete: (AlterCard, String) -> Unit, modifier: Modifier = Modifier) {
@@ -575,24 +536,11 @@ private fun HomeContent(cards: List<AlterCard>, onChat: () -> Unit, onUpcoming: 
     val tasks = cards.filter { it.type == "upcoming" }.take(2)
     val recent = cards.filter { it.type != "upcoming" }.take(2)
     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
-        Box(Modifier.fillMaxWidth().height(260.dp)
-            .background(Brush.horizontalGradient(listOf(colors.surface, Color(0xFF10100E))), RoundedCornerShape(22.dp))
-            .border(1.dp, colors.outline, RoundedCornerShape(22.dp))) {
-            Image(painterResource("alter-window.png"), null, Modifier.align(Alignment.CenterEnd).padding(end = 45.dp).size(220.dp), alpha = .55f)
-            Column(Modifier.align(Alignment.CenterStart).padding(38.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("A QUIETER PLACE TO THINK", color = AlterYellow, fontSize = 10.sp,
-                    letterSpacing = 1.3.sp, fontWeight = FontWeight.Bold)
-                Text("Everything on your mind,\nin one calm place.", fontSize = 32.sp,
-                    lineHeight = 36.sp, fontWeight = FontWeight.Bold)
-                Text("Capture the small things. Come back to what matters.",
-                    color = colors.onSurface.copy(alpha = .68f), style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = onChat, shape = RoundedCornerShape(10.dp)) { Text("Talk to Alter ↗") }
-            }
-        }
+        WorkspaceRow("Open Alter AI", Lucide.Sparkles, onClick = onChat)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
-                Text("Your day", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                Text("A simple view of what needs your attention.", color = colors.onSurface.copy(alpha = .58f))
+                Text("Overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+
             }
             TextButton(onClick = onUpcoming) { Text("See upcoming →") }
         }
@@ -682,7 +630,7 @@ private fun River(pond: ShoalSimulation, visible: Boolean, animate: Boolean, opa
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     val frameMillis = remember { hardwareBudget().renderFrameMillis }
     val renderer = remember { KoiAsciiRenderer() }
-    DisposableEffect(Unit) { onDispose { renderer.close() } }
+    DisposableEffect(Unit) { onDispose { synchronized(pond) { renderer.close() } } }
     LaunchedEffect(visible, animate, dimensions, density, opacity, dark) {
         if (!visible || dimensions.width == 0 || dimensions.height == 0) return@LaunchedEffect
         synchronized(pond) { pond.resize(dimensions.width / density, dimensions.height / density) }

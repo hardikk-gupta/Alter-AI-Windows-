@@ -1,13 +1,13 @@
 # Delivery plan
 
 1. Current desktop increment: local shell, persistent text memories/plain notes/tasks, left Windows navigation, shared river, appearance settings, verified local Qwen download/runtime and Whisper dictation. Validate Linux JVM/UI and Windows CI; Windows model speed/microphone/input hardware acceptance remains separate.
-2. Port validated agent tools/retrieval, explicit preferences, rich note block arrays versus canvas objects, provider settings, bounded verified model installation and multi-session conversations. Never claim a chat answer creates a task.
+2. Port validated agent tools/retrieval, explicit preferences, rich note block arrays versus canvas objects, provider settings, bounded verified model installation. Never claim a chat answer creates a task.
 3. Port voice/files/retrieval/backup, synthetic Android↔Windows ZIP v2 fixtures, Windows OAuth and no-speech/cancellation flows. Local offline speech and Hindi/Hinglish quality need real recordings/hardware.
 4. Add Windows notifications/tray/focus-safe insertion/hotkeys after the app works; verify resizing, DPI, keyboard, mouse and reduced motion on Windows.
 5. Configure GitHub notification-only linkage once a default branch and scoped cross-repository credentials exist. This build only records upstream SHA/path hashes; it does not deliver notifications. Keep Android untouched. Shared-package extraction or generated update PRs need later explicit authorization.
 
 Windows CI now packages an unsigned per-user MSI with a Start menu entry and stable upgrade identity. Each future release must increase `packageVersion`; automatic update checks, signing and real Windows install/upgrade acceptance remain pending.
 
-The designer approved `design/desktop-review.html`; its tokens and primary layouts are implemented in Compose Desktop. Continue refining from real saved data and Windows DPI/input acceptance. The 0.1.2 portable CPU runtime still needs a real Windows retry with the user's Qwen model and runtime log if it fails.
+The desktop dashboard now follows the two screenshot references and supports searchable multi-session chat, Favorites and Archive. The HTML gallery shows native captures. Continue refining from real saved data and Windows DPI/input acceptance. The 0.1.2 portable CPU runtime still needs a real Windows retry with the user's Qwen model and runtime log if it fails.
 
 Target hardware: low-end CPU PCs as well as the user's Ryzen 7000 HS, RTX 4050, 16 GB RAM system. The reported “4 GB virtual” is not established dedicated GPU memory. Detect/confirm available VRAM before selecting GPU layers. No Windows speed/quality benchmark has run in Linux.

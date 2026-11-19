@@ -49,20 +49,48 @@ class DesktopTest {
                 val task = s.cards().first { it.type == "upcoming" }
                 assertEquals(listOf("Meet tomorrow"), pendingCardTasks(task))
                 s.save(completeCardTask(task, "Meet tomorrow"))
-                s.addMessage("user", "Hi")
+                s.addMessage(null, "user", "Hi")
             }
             Store(dir).use { s ->
                 assertEquals(2, s.cards().size)
                 assertEquals("Light", s.setting("theme"))
                 assertEquals("Line 1\nLine 2 😀", s.cards().first { it.type == "note" }.processedContent)
                 assertTrue(pendingCardTasks(s.cards().first { it.type == "upcoming" }).isEmpty())
-                assertEquals(listOf("user" to "Hi"), s.messages())
+                assertEquals(listOf("user" to "Hi"), s.messages(s.threads().single().id))
                 val note = s.cards().first { it.type == "note" }
                 s.save(note.copy(processedContent = "Updated"))
                 s.delete(note.id)
                 assertEquals(1, s.cards().size)
                 assertFailsWith<IllegalStateException> { s.save(note) }
             }
+        } finally { dir.toFile().deleteRecursively() }
+    }
+
+    @Test fun legacyHistoryMigratesAndNewThreadsStaySeparate() {
+        val dir = Files.createTempDirectory("alter-chat-migration-")
+        try {
+            java.sql.DriverManager.getConnection("jdbc:sqlite:${dir.resolve("alter-desktop.db")}").use { db ->
+                db.createStatement().use { sql ->
+                    sql.execute("CREATE TABLE messages(id INTEGER PRIMARY KEY, sender TEXT, text TEXT, timestamp INTEGER)")
+                    sql.execute("INSERT INTO messages VALUES(1,'user','Old chat',0)")
+                    sql.execute("PRAGMA user_version=1")
+                }
+            }
+            Store(dir).use { s ->
+                val legacy = s.threads().single()
+                val other = s.addMessage(null, "user", "Another thread")
+                s.addMessage(legacy.id, "assistant", "Legacy reply with 5%")
+                assertEquals(listOf(legacy.id, other), s.threads().map { it.id })
+                assertEquals(listOf(legacy), s.threads("5%"))
+                assertEquals(listOf("user" to "Another thread"), s.messages(other))
+                val pinned = legacy.copy(favorite = true)
+                s.updateThread(pinned)
+                s.updateThread(s.threads().first { it.id == other }.copy(archived = true))
+                assertEquals(listOf(pinned), s.threads().filter { it.favorite && !it.archived })
+                assertEquals(other, s.threads().single { it.archived }.id)
+                s.deleteThread(other)
+            }
+            Store(dir).use { s -> assertEquals(2, s.messages(s.threads().single().id).size) }
         } finally { dir.toFile().deleteRecursively() }
     }
 

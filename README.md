@@ -1,8 +1,6 @@
 # Alter for Windows
 
-First desktop increment of Alter, referenced to [Android main at 0bda3d8](https://github.com/hardikk-gupta/ALTER-AI-code-base/tree/0bda3d8583d1f53b6f305e1eeb22628c17a08e66).
-
-This build provides five destinations in a left desktop panel, local memories, notes, tasks, themes and a shared river. Text chat and microphone transcription use local Windows runtimes and separately downloaded models. See [parity and limits](docs/ANDROID_PARITY.md); this is not full Android parity.
+Alter opens to a local chat dashboard with a labeled activity rail, a searchable conversation panel, and a text composer with a local model selector. Use a chat’s menu to favorite or archive it. Memories, notes, upcoming tasks, capture and Settings share the same shell. The workspace details card shows the selected speech model and local engine. See the [native screen gallery](design/desktop-review.html) and [Android parity ledger](docs/ANDROID_PARITY.md).
 
 ## Download the runnable app
 
@@ -11,8 +9,6 @@ Open [Desktop source checks in GitHub Actions](https://github.com/hardikk-gupta/
 The separate **Alter-Windows** artifact is a portable folder ZIP. Extract it completely and run `Alter.exe` inside the folder if you prefer not to install. Downloading the repository's source ZIP will not install or run the app.
 
 If a downloaded Qwen model fails to start, install the newest MSI, open Settings → AI models, and tap **Use model** again. The model does not need to be downloaded twice. The current build opens its runtime log from the error banner and shows common startup causes directly. The earlier 0.1.1 runtime was compiled for its build machine's CPU and may fail on other processors.
-
-The proposed next visual direction is available as an [interactive HTML review](design/desktop-review.html) and [screen images](design/README.md). It is a design draft with sample content; it is not the current installed interface.
 
 If the Windows job has not passed or no artifact appears, use the source steps below while the packaging failure is fixed. The [source ZIP](https://github.com/hardikk-gupta/Alter-AI-Windows-/archive/refs/heads/main.zip) contains code, not a runnable app.
 
@@ -30,7 +26,7 @@ The wrapper pins Gradle and verifies its distribution SHA-256. Font setup fetche
 
 Data is stored under `%LOCALAPPDATA%\Alter\alter-desktop.db`. It is private local data, without backup/sync yet. Do not uninstall/delete this directory to update the application. Start a second copy only after closing the first; concurrent editors are not supported yet. Linux development uses `~/.local/share/Alter`; `-Dalter.dataDir=...` overrides the data directory for disposable tests.
 
-Use Capture to save a Memory, Note or Task. Tasks accept one explicit commitment per line; no reminder time is invented. Ctrl+N opens capture, Ctrl+Enter sends chat, and the standard Tab/Space/Enter keys operate controls. Completed checkboxes stay saved. Deletion is confirmed and soft-deletes records; there is no Trash restoration UI yet.
+Use Capture to save a Memory, Note or Task. Tasks accept one explicit commitment per line; no reminder time is invented. Ctrl+N opens a new chat in Alter AI and capture in the other workspace views. Enter or Ctrl+Enter sends chat, Shift+Enter inserts a line break, and the standard Tab/Space/Enter keys operate controls. Completed checkboxes stay saved. Deletion is confirmed and soft-deletes records; there is no Trash restoration UI yet.
 
 For local AI, open Settings → AI models, download Qwen and tap **Use model**. The app verifies the pinned size and SHA-256 before running its bundled CPU llama.cpp server. For speech, download and select Whisper Tiny or Base, then tap **Mic** and **Stop mic** in Alter AI. Review the resulting draft before sending. See [model details](docs/WINDOWS_MODELS.md). Microphone/GPU performance, Windows DPI/input and OS integrations need Windows acceptance.
 
