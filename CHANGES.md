@@ -4,6 +4,8 @@
 
 Applied the designer’s two dashboard references across the native shell. Added a framed labeled activity rail, searchable and collapsible conversation groups, persisted Favorites and Archive, category counts, model management and a responsive workspace inspector. The bottom text composer supports local model selection, verified downloads, dictation, send and stop. Legacy messages migrate into one thread; new conversations keep independent histories. Reviewed Android main at `5b05604`.
 
+The first full Windows Qwen check reproduced an engine exit after file verification. The included CPU binaries now link their inference libraries into each executable and serve one chat at a time. Windows packaging exercises the small GGUF with a real completion and prints the synthetic test runtime log on failure.
+
 ## Portable local inference and desktop design review
 
 - Rebuilt the bundled llama.cpp and whisper.cpp engines with a portable CPU target instead of the CI runner's native instruction set, and linked the Windows C runtime statically. CI now starts each packaged executable with `--version` before publishing the MSI. This addresses a likely cause of startup exits on laptops with different CPUs; the exact failure on the user's PC still requires the runtime log.

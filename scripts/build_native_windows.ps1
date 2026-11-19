@@ -14,9 +14,9 @@ foreach ($project in $projects) {
   if ($actual -ne $project.Sha) { throw "Unexpected $($project.Name) source commit: $actual" }
   $build = Join-Path $PWD "build\native-build\$($project.Name)"
   if ($project.Name -eq "llama") {
-    cmake -S $source -B $build -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_USE_PREBUILT_UI=OFF -DGGML_CUDA=OFF -DGGML_NATIVE=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+    cmake -S $source -B $build -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_USE_PREBUILT_UI=OFF -DGGML_CUDA=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   } else {
-    cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=OFF -DGGML_NATIVE=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+    cmake -S $source -B $build -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_SERVER=OFF -DGGML_NATIVE=OFF -DBUILD_SHARED_LIBS=OFF -DGGML_OPENMP=OFF -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
   }
   if ($LASTEXITCODE -ne 0) { throw "Could not configure $($project.Name)" }
   $targetName = if ($project.Name -eq "llama") { "llama-server" } else { "whisper-cli" }

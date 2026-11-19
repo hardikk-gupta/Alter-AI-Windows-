@@ -54,7 +54,7 @@ class NativeModels : AutoCloseable {
         val exe = externalServer ?: nativeProgram("llama-server")
         require(Files.isRegularFile(exe)) { "Selected llama-server.exe is missing." }
         server = ProcessBuilder(exe.toString(), "-m", modelPath(spec).toString(),
-            "--host", "127.0.0.1", "--port", port.toString(), "-c", "2048", "-ngl", gpuLayers.toString())
+            "--host", "127.0.0.1", "--port", port.toString(), "-c", "2048", "--parallel", "1", "-ngl", gpuLayers.toString())
             .directory(exe.parent.toFile()).redirectErrorStream(true)
             .redirectOutput(modelRuntimeLog().toFile()).start()
         try { repeat(90) {

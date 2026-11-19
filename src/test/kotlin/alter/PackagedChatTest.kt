@@ -29,6 +29,10 @@ class PackagedChatTest {
                     assertTrue(answer.isNotBlank())
                 }
             }
+        } catch (e: Exception) {
+            val log = directory.resolve("model-runtime.log")
+            val detail = if (Files.exists(log)) Files.readString(log).takeLast(5000) else "No runtime log."
+            throw AssertionError("Packaged inference failed: ${e.message}\n$detail", e)
         } finally {
             if (previous == null) System.clearProperty("alter.dataDir") else System.setProperty("alter.dataDir", previous)
             directory.toFile().deleteRecursively()

@@ -25,10 +25,23 @@ jobs:
       - name: Windows checks
         if: runner.os == 'Windows'
         run: .\gradlew.bat test
-      - name: Build verified Windows inference runtimes
+      - name: Restore pinned Windows inference runtimes
         if: runner.os == 'Windows'
+        id: engines
+        uses: actions/cache/restore@v4
+        with:
+          path: build/package-resources/windows/native
+          key: windows-x64-engines-${{ hashFiles('scripts/build_native_windows.ps1') }}
+      - name: Build verified Windows inference runtimes
+        if: runner.os == 'Windows' && steps.engines.outputs.cache-hit != 'true'
         shell: pwsh
         run: .\scripts\build_native_windows.ps1
+      - name: Cache built Windows inference runtimes
+        if: runner.os == 'Windows' && steps.engines.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: build/package-resources/windows/native
+          key: ${{ steps.engines.outputs.cache-primary-key }}
       - name: Package and verify Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
@@ -59,7 +72,10 @@ jobs:
           $env:ALTER_TEST_MODEL_CACHE = Join-Path $env:RUNNER_TEMP "alter-test-models"
           $env:ALTER_NATIVE_DIR = (Resolve-Path "build/compose/binaries/main/app/Alter/app/resources/native").Path
           .\gradlew.bat test --tests alter.PackagedChatTest
-          if ($LASTEXITCODE -ne 0) { throw "Packaged local chat failed." }
+          if ($LASTEXITCODE -ne 0) {
+            $report = [xml](Get-Content "build/test-results/test/TEST-alter.PackagedChatTest.xml" -Raw)
+            throw $report.testsuite.testcase.failure.message
+          }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
