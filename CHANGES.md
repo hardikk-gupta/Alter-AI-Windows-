@@ -1,5 +1,11 @@
 # Changes
 
+Reduced the rail and Alter mark, matched the navigation surface to Workspace details, and added a rail collapse button with a persistent toolbar restore control. Desktop icons use the Android rounded Hugeicons set with a chat bubble for conversations.
+
+## Desktop palette correction
+
+Applied the Android dark and light Material schemes throughout the desktop UI, including the rail, sidebar, chat composer, dialogs and settings.
+
 ## 0.1.4 · Desktop dashboard
 
 Applied the designer’s two dashboard references across the native shell. Added a framed labeled activity rail, searchable and collapsible conversation groups, persisted Favorites and Archive, category counts, model management and a responsive workspace inspector. The bottom text composer supports local model selection, verified downloads, dictation, send and stop. Legacy messages migrate into one thread; new conversations keep independent histories. Reviewed Android main at `5b05604`.

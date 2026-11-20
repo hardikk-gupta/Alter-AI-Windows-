@@ -54,5 +54,13 @@
       "CHANGES.md"
     ],
     "adaptation": "Desktop conversation history and local model menu; existing copied sources retain their acceptedSha."
+  },
+  "paletteReview": {
+    "sha": "5b05604861a3e7d236b820e603c620deea61fe93",
+    "paths": [
+      "app/src/main/java/com/example/ui/theme/Color.kt",
+      "app/src/main/java/com/example/ui/theme/Theme.kt"
+    ],
+    "adaptation": "Desktop uses the Android brand tokens and static dark/light Material roles. River-specific rendering colors remain scoped to the scene."
   }
 }
