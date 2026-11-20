@@ -9,12 +9,12 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.x'
       - name: Verify official fonts
@@ -28,7 +28,7 @@ jobs:
       - name: Restore pinned Windows inference runtimes
         if: runner.os == 'Windows'
         id: engines
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: build/package-resources/windows/native
           key: windows-x64-engines-${{ hashFiles('scripts/build_native_windows.ps1') }}
@@ -38,7 +38,7 @@ jobs:
         run: .\scripts\build_native_windows.ps1
       - name: Cache built Windows inference runtimes
         if: runner.os == 'Windows' && steps.engines.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: build/package-resources/windows/native
           key: ${{ steps.engines.outputs.cache-primary-key }}
@@ -60,7 +60,7 @@ jobs:
           }
       - name: Cache verified Qwen test weights
         if: runner.os == 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/alter-test-models
           key: alter-qwen-small-9465e63a
@@ -78,14 +78,14 @@ jobs:
           }
       - name: Upload Windows installer
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Alter-Windows-Installer
           path: build/compose/binaries/main/msi/*.msi
           if-no-files-found: error
       - name: Upload runnable Windows app
         if: runner.os == 'Windows'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: Alter-Windows
           path: build/compose/binaries/main/app/Alter/
