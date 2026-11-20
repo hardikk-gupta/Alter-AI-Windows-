@@ -1,5 +1,7 @@
 # Changes
 
+Reduced the rail and Alter mark, matched the navigation surface to Workspace details, and added a rail collapse button with a persistent toolbar restore control. Desktop icons use the Android rounded Hugeicons set with a chat bubble for conversations.
+
 ## Desktop palette correction
 
 Applied the Android dark and light Material schemes throughout the desktop UI, including the rail, sidebar, chat composer, dialogs and settings.

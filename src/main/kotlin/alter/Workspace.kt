@@ -19,12 +19,12 @@ import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
-import com.example.ui.Lucide
+import com.example.ui.AlterIcons
 import com.example.ui.theme.AlterYellow
 
 internal enum class Destination(val title: String, val icon: ImageVector) {
-    Home("Home", Lucide.Home), Chat("Alter AI", Lucide.Sparkles), Memories("Memories", Lucide.Memories),
-    Upcoming("Upcoming", Lucide.Calendar), Notes("Notes", Lucide.FileText)
+    Home("Home", AlterIcons.Home), Chat("Alter AI", AlterIcons.Chat), Memories("Memories", AlterIcons.Memories),
+    Upcoming("Upcoming", AlterIcons.Calendar), Notes("Notes", AlterIcons.FileText)
 }
 internal val settingsPages = listOf("Appearance", "AI models", "Voice & files", "Backup & account", "About")
 
@@ -35,7 +35,7 @@ internal fun WorkspaceButton(icon: ImageVector, label: String, selected: Boolean
     TooltipArea(tooltip = { Surface(shape = RoundedCornerShape(6.dp), shadowElevation = 4.dp) {
         Text(label, Modifier.padding(horizontal = 9.dp, vertical = 5.dp), fontSize = 12.sp)
     } }) {
-        IconButton(onClick, Modifier.size(36.dp).background(if (selected) c.secondaryContainer else Color.Transparent,
+        IconButton(onClick, Modifier.size(36.dp).background(if (selected) c.onSurface.copy(alpha = .10f) else Color.Transparent,
             RoundedCornerShape(9.dp)).semantics { this.selected = selected }) {
             Icon(icon, label, Modifier.size(18.dp), tint = c.onSurface.copy(alpha = if (selected) 1f else .68f))
         }
@@ -43,23 +43,18 @@ internal fun WorkspaceButton(icon: ImageVector, label: String, selected: Boolean
 }
 
 @Composable
-internal fun ActivityRail(current: Destination, settings: Boolean, select: (Destination) -> Unit, openSettings: () -> Unit) {
+internal fun ActivityRail(current: Destination, settings: Boolean, select: (Destination) -> Unit, openSettings: () -> Unit, collapse: (() -> Unit)?) {
     val c = MaterialTheme.colorScheme
-    Column(Modifier.width(64.dp).fillMaxHeight().padding(vertical = 10.dp, horizontal = 3.dp),
+    Column(Modifier.width(42.dp).fillMaxHeight().padding(vertical = 10.dp, horizontal = 3.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Icon(painterResource("alter-logo.xml"), "Alter", Modifier.padding(bottom = 9.dp).size(27.dp), AlterYellow)
+        Icon(painterResource("alter-logo.xml"), "Alter", Modifier.padding(bottom = 9.dp).size(18.dp), AlterYellow)
         Destination.entries.forEach { tab ->
             val selected = !settings && current == tab
-            Column(Modifier.fillMaxWidth().height(53.dp).clip(RoundedCornerShape(7.dp))
-                .background(if (selected) c.background else Color.Transparent).semantics { this.selected = selected }
-                .clickable(role = Role.Tab) { select(tab) }, verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(tab.icon, null, Modifier.size(16.dp), tint = c.onSurface.copy(alpha = if (selected) 1f else .70f))
-                Text(tab.title, fontSize = 10.sp, lineHeight = 16.sp, color = c.onSurface.copy(alpha = if (selected) 1f else .75f))
-            }
+            WorkspaceButton(tab.icon, tab.title, selected) { select(tab) }
         }
         Spacer(Modifier.weight(1f))
-        WorkspaceButton(Lucide.Settings, "Settings", settings, openSettings)
+        collapse?.let { WorkspaceButton(AlterIcons.ArrowLeft, "Collapse navigation", onClick = it) }
+        WorkspaceButton(AlterIcons.Settings, "Settings", settings, openSettings)
     }
 }
 
@@ -68,7 +63,7 @@ internal fun WorkspaceRow(title: String, icon: ImageVector? = null, selected: Bo
     enabled: Boolean = true, onClick: () -> Unit) {
     val c = MaterialTheme.colorScheme
     Row(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(8.dp))
-        .background(if (selected) c.secondaryContainer else Color.Transparent)
+        .background(if (selected) c.onSurface.copy(alpha = .10f) else Color.Transparent)
         .clickable(enabled = enabled, role = Role.Button, onClick = onClick).padding(horizontal = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         if (icon != null) Icon(icon, null, Modifier.size(16.dp), tint = c.onSurface.copy(alpha = .70f))
@@ -82,7 +77,7 @@ private fun SectionHeader(name: String, expanded: Boolean, toggle: () -> Unit) {
     val tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .60f)
     Row(Modifier.fillMaxWidth().height(32.dp).clickable(role = Role.Button, onClick = toggle).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-        Icon(if (expanded) Lucide.ChevronDown else Lucide.ChevronRight, if (expanded) "Collapse" else "Expand", Modifier.size(12.dp), tint)
+        Icon(if (expanded) AlterIcons.ChevronDown else AlterIcons.ChevronRight, if (expanded) "Collapse" else "Expand", Modifier.size(12.dp), tint)
         Text(name.uppercase(), fontSize = 10.sp, letterSpacing = .6.sp, color = tint)
     }
 }
@@ -95,7 +90,7 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
     val c = MaterialTheme.colorScheme
     val expanded = remember { mutableStateMapOf("Favorites" to true, "Chats" to true, "Categories" to true, "Archive" to false) }
     Column(Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)).background(
-        c.surfaceContainerLow).padding(vertical = 8.dp, horizontal = 7.dp)) {
+        c.surface).padding(vertical = 8.dp, horizontal = 7.dp)) {
         if (settings != null) {
             Text("Settings", Modifier.padding(10.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             settingsPages.forEach { WorkspaceRow(it, selected = settings == it) { openSettings(it) } }
@@ -105,11 +100,11 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
                 cursorBrush = SolidColor(c.primary), decorationBox = { inner ->
                     Row(Modifier.height(29.dp), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Lucide.Search, null, Modifier.size(15.dp), c.onSurface.copy(alpha = .65f))
+                        Icon(AlterIcons.Search, null, Modifier.size(15.dp), c.onSurface.copy(alpha = .65f))
                         Box(Modifier.weight(1f)) { if (search.isEmpty()) Text("Search chats…", fontSize = 13.sp, color = c.onSurface.copy(alpha = .66f)); inner() }
                     }
                 })
-            WorkspaceRow("New chat", Lucide.Edit, enabled = canSwitch, onClick = newChat)
+            WorkspaceRow("New chat", AlterIcons.Edit, enabled = canSwitch, onClick = newChat)
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 if (search.isNotBlank() && threads.isEmpty()) item { Text("No matching chats", Modifier.padding(8.dp), fontSize = 13.sp) }
                 for (name in listOf("Favorites", "Chats", "Categories", "Archive")) {
@@ -143,14 +138,14 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Row(Modifier.weight(1f).fillMaxHeight().clickable(enabled = canSwitch) { openThread(thread.id) }.padding(start = 7.dp),
                                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Icon(if (thread.favorite) Lucide.Pin else Lucide.Sparkles, null, Modifier.size(13.dp),
+                                    Icon(if (thread.favorite) AlterIcons.Pin else AlterIcons.Chat, null, Modifier.size(13.dp),
                                         if (thread.favorite) c.primary else c.onSurface.copy(alpha = .6f))
                                     Text(thread.title, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 }
                                 Box {
                                     Box(Modifier.size(26.dp).clickable(enabled = canSwitch) { menu = true }
                                         .semantics { contentDescription = "Chat options for ${thread.title}" }, contentAlignment = Alignment.Center) {
-                                        Icon(Lucide.ChevronDown, null, Modifier.size(11.dp), c.onSurface.copy(alpha = .58f))
+                                        Icon(AlterIcons.ChevronDown, null, Modifier.size(11.dp), c.onSurface.copy(alpha = .58f))
                                     }
                                     DropdownMenu(menu, { menu = false }) {
                                         DropdownMenuItem(text = { Text(if (thread.favorite) "Remove from favorites" else "Add to favorites") },
@@ -182,10 +177,10 @@ internal fun WorkspaceDetails(model: String?, voice: String?, runtime: String, m
         .border(1.dp, c.outline, RoundedCornerShape(16.dp)).padding(12.dp)) {
         Row(Modifier.padding(start = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("Workspace", Modifier.weight(1f), fontSize = 14.sp, color = c.onSurface.copy(alpha = .70f))
-            WorkspaceButton(Lucide.Settings, "Manage local models", onClick = manage)
+            WorkspaceButton(AlterIcons.Settings, "Manage local models", onClick = manage)
         }
-        listOf(Lucide.Grid to "This PC", Lucide.Sparkles to (model ?: "No text model loaded"),
-            Lucide.Mic to (voice ?: "No voice model selected"), Lucide.Waves to runtime).forEach { (icon, label) ->
+        listOf(AlterIcons.Grid to "This PC", AlterIcons.Chat to (model ?: "No text model loaded"),
+            AlterIcons.Mic to (voice ?: "No voice model selected"), AlterIcons.Waves to runtime).forEach { (icon, label) ->
             Row(Modifier.fillMaxWidth().heightIn(min = 31.dp).padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(icon, null, Modifier.size(15.dp), tint = c.onSurface.copy(alpha = .68f))
