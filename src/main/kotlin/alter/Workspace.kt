@@ -21,7 +21,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import com.example.ui.Lucide
 import com.example.ui.theme.AlterYellow
-import com.example.ui.theme.PitchBlack
 
 internal enum class Destination(val title: String, val icon: ImageVector) {
     Home("Home", Lucide.Home), Chat("Alter AI", Lucide.Sparkles), Memories("Memories", Lucide.Memories),
@@ -52,7 +51,7 @@ internal fun ActivityRail(current: Destination, settings: Boolean, select: (Dest
         Destination.entries.forEach { tab ->
             val selected = !settings && current == tab
             Column(Modifier.fillMaxWidth().height(53.dp).clip(RoundedCornerShape(7.dp))
-                .background(if (selected) c.surface else Color.Transparent).semantics { this.selected = selected }
+                .background(if (selected) c.background else Color.Transparent).semantics { this.selected = selected }
                 .clickable(role = Role.Tab) { select(tab) }, verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(tab.icon, null, Modifier.size(16.dp), tint = c.onSurface.copy(alpha = if (selected) 1f else .70f))
@@ -96,7 +95,7 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
     val c = MaterialTheme.colorScheme
     val expanded = remember { mutableStateMapOf("Favorites" to true, "Chats" to true, "Categories" to true, "Archive" to false) }
     Column(Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)).background(
-        if (c.background == PitchBlack) Color(0xFF1A191E) else c.surface).padding(vertical = 8.dp, horizontal = 7.dp)) {
+        c.surfaceContainerLow).padding(vertical = 8.dp, horizontal = 7.dp)) {
         if (settings != null) {
             Text("Settings", Modifier.padding(10.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             settingsPages.forEach { WorkspaceRow(it, selected = settings == it) { openSettings(it) } }

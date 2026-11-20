@@ -140,12 +140,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             font.use { FontFamily(androidx.compose.ui.text.platform.Font("Satoshi", it.readBytes())) }
         }.getOrDefault(FontFamily.SansSerif)
     }
-    val colors = if (dark) darkColorScheme(primary = AlterYellow, onPrimary = PitchBlack,
-        background = PitchBlack, surface = SlateGrayCard, onSurface = SecondaryText,
-        onBackground = SecondaryText, outline = ReviewBorder, secondaryContainer = HoverSurface)
-    else lightColorScheme(primary = AlterYellow, onPrimary = PitchBlack,
-        background = Color(0xFFF7F8FA), surface = Color.White, onSurface = Color(0xFF111111),
-        onBackground = Color(0xFF111111), outline = Color(0xFFEAEAEA))
+    val colors = if (dark) DarkColorScheme else LightColorScheme
     val typography = Typography().let { t -> t.copy(
         headlineSmall = t.headlineSmall.copy(fontFamily = satoshi, fontSize = 26.sp, lineHeight = 34.sp),
         titleMedium = t.titleMedium.copy(fontFamily = satoshi),
@@ -286,7 +281,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     HorizontalDivider(color = colors.outline)
                     Row(Modifier.fillMaxSize()) {
                 Row(Modifier.fillMaxHeight().padding(5.dp).clip(RoundedCornerShape(13.dp))
-                    .background(if (dark) Color(0xFF37363D) else colors.secondaryContainer).padding(end = 5.dp, top = 5.dp, bottom = 5.dp)) {
+                    .background(colors.outlineVariant).padding(end = 5.dp, top = 5.dp, bottom = 5.dp)) {
                 ActivityRail(destination, settings != null, { destination = it; settings = null; search = "" },
                     { settings = "Appearance"; if (!compact) sidebar = true })
                 if (sidebar && !compact) {
