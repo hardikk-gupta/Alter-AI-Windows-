@@ -2,6 +2,7 @@ name: Desktop source checks
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
+  actions: read
 jobs:
   desktop:
     strategy:
@@ -69,19 +70,12 @@ jobs:
             Write-Host "::error title=MSI verification failed::$($_.Exception.Message)"
             throw
           }
-      - name: Open the packaged Plugins screen on Windows
+      - name: Install Alter and verify Start menu and workspace upgrade
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          $app = (Resolve-Path "build/compose/binaries/main/app/Alter/Alter.exe").Path
-          $process = Start-Process -FilePath $app -ArgumentList '--preview=plugins','--screenshot' -WorkingDirectory $pwd -PassThru
-          if (-not $process.WaitForExit(90000)) {
-            $process.Kill()
-            throw "The packaged app did not finish the screen capture"
-          }
-          if ($process.ExitCode -ne 0 -or -not (Test-Path build/screenshots/plugins.png)) {
-            throw "The packaged app did not render Plugins"
-          }
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/test_windows_upgrade.ps1
       - name: Upload Windows screen preview
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v6
