@@ -9,7 +9,7 @@ Canonical product reference: hardikk-gupta/ALTER-AI-code-base, merged main at `0
 | Area | Reference | Desktop boundary |
 | --- | --- | --- |
 | Notes/tasks | AlterData.kt, TaskText.kt, MemoryCards.kt | Independent SQLite schema; same primitive field names and checkbox rules; rich blocks/board objects still pending |
-| UI | Color.kt, Type.kt, Theme.kt, AdaptiveBottomNavigation.kt | Compose Desktop, Satoshi, original bottom destinations and envelope cards; desktop acceptance pending |
+| UI | Color.kt, Type.kt, Theme.kt, AdaptiveBottomNavigation.kt | Compose Desktop, Windows system typography, original bottom destinations and envelope cards; desktop acceptance pending |
 | River | ShoalSimulation.kt, KoiAsciiRenderer.kt | Pure simulation copied; Android graphics mapped to Java2D, fixed ASCII sampling retained |
 | Agent | ALTER_INSTRUCTIONS.md, AlterAgent.kt | Exact personality resource, local conversation only; validated tools/retrieval not yet ported |
 | Models | ModelCatalog.kt, local_models.json | Windows llama.cpp loopback provider; manual Windows GGUF installation instead of Android LiteRT binaries |

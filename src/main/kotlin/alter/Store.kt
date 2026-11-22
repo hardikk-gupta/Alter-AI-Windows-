@@ -27,6 +27,12 @@ class Store(private val directory: Path) : AutoCloseable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, rawInput TEXT NOT NULL,
                 processedContent TEXT NOT NULL, timestamp INTEGER NOT NULL,
                 isDeleted INTEGER NOT NULL DEFAULT 0, deletedTimestamp INTEGER)""")
+            val hasSource = s.executeQuery("PRAGMA table_info(cards)").use { rows ->
+                var found = false
+                while (rows.next()) if (rows.getString("name") == "source") found = true
+                found
+            }
+            if (!hasSource) s.execute("ALTER TABLE cards ADD COLUMN source TEXT NOT NULL DEFAULT 'Local entry'")
             s.execute("CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
             s.execute("""CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, text TEXT NOT NULL,
@@ -37,6 +43,12 @@ class Store(private val directory: Path) : AutoCloseable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, instructions TEXT NOT NULL)""")
             s.execute("""CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, project INTEGER NOT NULL,
                 action TEXT NOT NULL, argument TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '')""")
+            val activityColumns = s.executeQuery("PRAGMA table_info(activity)").use { rows ->
+                buildSet { while (rows.next()) add(rows.getString("name")) }
+            }
+            if ("thread" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN thread INTEGER")
+            if ("started" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN started INTEGER NOT NULL DEFAULT 0")
+            if ("ownerPid" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN ownerPid INTEGER NOT NULL DEFAULT 0")
             s.execute("""CREATE TABLE IF NOT EXISTS schedules (project INTEGER PRIMARY KEY, repo TEXT NOT NULL, time TEXT NOT NULL,
                 zone TEXT NOT NULL, next INTEGER NOT NULL, enabled INTEGER NOT NULL)""")
             if (version < 2) {
@@ -72,15 +84,39 @@ class Store(private val directory: Path) : AutoCloseable {
         }
     }
 
+    @Synchronized fun updateProject(project: Project): Project {
+        val name = project.name.trim()
+        require(project.id > 0 && name.length in 1..80 && !name.equals(personalWorkspace.name, true) && project.instructions.length <= 2000)
+        db.prepareStatement("UPDATE OR IGNORE projects SET name=?, instructions=? WHERE id=?").use { statement ->
+            statement.setString(1, name); statement.setString(2, project.instructions); statement.setLong(3, project.id)
+            require(statement.executeUpdate() == 1) { "Choose a unique name for this project." }
+        }
+        return project.copy(name = name)
+    }
+
     fun openProject(project: Project): Store {
         require(project.id > 0 && projects().any { it.id == project.id })
         return Store(directory.resolve("projects").resolve(project.id.toString()))
     }
 
-    @Synchronized internal fun beginRun(project: Long, action: DesktopAction): Long = db.prepareStatement(
-        "INSERT INTO activity(project,action,argument,state) VALUES(?,?,?,'running') RETURNING id"
+    @Synchronized fun recoverInterruptedRuns() {
+        val running = db.createStatement().use { sql ->
+            sql.executeQuery("SELECT id,ownerPid,started FROM activity WHERE state='running'").use { rows ->
+                buildList { while (rows.next()) add(Triple(rows.getLong(1), rows.getLong(2), rows.getLong(3))) }
+            }
+        }
+        for ((id, pid, started) in running) {
+            val owner = if (pid > 0) ProcessHandle.of(pid).orElse(null) else null
+            if (owner == null || !owner.isAlive || owner.info().startInstant().map { it.toEpochMilli() > started }.orElse(false))
+                finishRun(id, "interrupted", "Alter closed before it received a result.")
+        }
+    }
+
+    @Synchronized internal fun beginRun(project: Long, action: DesktopAction, thread: Long? = null): Long = db.prepareStatement(
+        "INSERT INTO activity(project,action,argument,thread,started,ownerPid,state) VALUES(?,?,?,?,?,?,'running') RETURNING id"
     ).use { s ->
         s.setLong(1, project); s.setString(2, action.name); s.setString(3, action.argument)
+        s.setObject(4, thread); s.setLong(5, System.currentTimeMillis()); s.setLong(6, ProcessHandle.current().pid())
         s.executeQuery().use { it.next(); it.getLong(1) }
     }
 
@@ -95,7 +131,7 @@ class Store(private val directory: Path) : AutoCloseable {
     ).use { s ->
         s.setLong(1, project)
         s.executeQuery().use { r -> buildList { while (r.next()) add(RunEntry(r.getLong("id"), project,
-            DesktopAction(r.getString("action"), r.getString("argument")), r.getString("state"), r.getString("result"))) } }
+            DesktopAction(r.getString("action"), r.getString("argument")), r.getString("state"), r.getString("result"), r.getObject("thread")?.let { r.getLong("thread") }, r.getLong("started"))) } }
     }
 
     @Synchronized internal fun saveSchedule(schedule: BriefSchedule) {
@@ -132,7 +168,7 @@ class Store(private val directory: Path) : AutoCloseable {
     @Synchronized fun cards(): List<AlterCard> = db.createStatement().use { s ->
         s.executeQuery("SELECT * FROM cards WHERE isDeleted=0 ORDER BY timestamp DESC, id DESC").use { r ->
             buildList { while (r.next()) add(AlterCard(r.getLong("id"), r.getString("type"),
-                r.getString("rawInput"), r.getString("processedContent"), r.getLong("timestamp"))) }
+                r.getString("rawInput"), r.getString("processedContent"), r.getLong("timestamp"), source = r.getString("source"))) }
         }
     }
     @Synchronized fun save(card: AlterCard) {
@@ -140,10 +176,10 @@ class Store(private val directory: Path) : AutoCloseable {
         require(card.rawInput.isNotBlank() || card.processedContent.isNotBlank()) { "Write something first." }
         require(card.rawInput.length <= 100_000 && card.processedContent.length <= 100_000) { "This entry is too long." }
         if (card.id == 0L) db.prepareStatement(
-            "INSERT INTO cards(type,rawInput,processedContent,timestamp) VALUES(?,?,?,?)"
+            "INSERT INTO cards(type,rawInput,processedContent,timestamp,source) VALUES(?,?,?,?,?)"
         ).use { s ->
             s.setString(1, card.type); s.setString(2, card.rawInput); s.setString(3, card.processedContent)
-            s.setLong(4, card.timestamp); s.executeUpdate()
+            s.setLong(4, card.timestamp); s.setString(5, card.source); s.executeUpdate()
         } else db.prepareStatement("UPDATE cards SET rawInput=?,processedContent=? WHERE id=? AND isDeleted=0").use { s ->
             s.setString(1, card.rawInput); s.setString(2, card.processedContent); s.setLong(3, card.id)
             check(s.executeUpdate() == 1) { "This entry has changed. Reopen it before saving." }
@@ -186,7 +222,8 @@ class Store(private val directory: Path) : AutoCloseable {
     @Synchronized fun addMessage(threadId: Long?, sender: String, text: String): Long {
         require(sender in setOf("user", "assistant", "action"))
         return db.prepareStatement("""INSERT INTO messages(threadId,sender,text,timestamp)
-            VALUES(coalesce(?,(SELECT coalesce(max(threadId),0)+1 FROM messages)),?,?,?) RETURNING threadId""").use { s ->
+            VALUES(coalesce(?,1+max(coalesce((SELECT seq FROM sqlite_sequence WHERE name='messages'),0),
+                coalesce((SELECT max(threadId) FROM messages),0))),?,?,?) RETURNING threadId""").use { s ->
             s.setObject(1, threadId); s.setString(2, sender); s.setString(3, text); s.setLong(4, System.currentTimeMillis())
             s.executeQuery().use { it.next(); it.getLong(1) }
         }

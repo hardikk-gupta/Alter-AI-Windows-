@@ -5,7 +5,17 @@
 #include <cwchar>
 #include <string>
 
-static int watchShortcut() {
+static DWORD WINAPI waitForParent(void* parent) {
+    WaitForSingleObject(static_cast<HANDLE>(parent), INFINITE);
+    ExitProcess(0);
+}
+
+static int watchShortcut(DWORD parentId) {
+    HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, parentId);
+    if (!parent) return 1;
+    HANDLE watcher = CreateThread(nullptr, 0, waitForParent, parent, 0, nullptr);
+    if (!watcher) return 1;
+    CloseHandle(watcher);
     if (!RegisterHotKey(nullptr, 1, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, VK_SPACE)) return 2;
     puts("ready"); fflush(stdout);
     MSG message;
@@ -21,7 +31,7 @@ static int watchShortcut() {
 }
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc == 2 && wcscmp(argv[1], L"shortcut") == 0) return watchShortcut();
+    if (argc == 3 && wcscmp(argv[1], L"shortcut") == 0) return watchShortcut(wcstoul(argv[2], nullptr, 10));
     if (argc != 3) return 1;
     std::wstring id(argv[2]);
     if (id.empty() || id.size() > 19 || id.find_first_not_of(L"0123456789") != std::wstring::npos) return 1;

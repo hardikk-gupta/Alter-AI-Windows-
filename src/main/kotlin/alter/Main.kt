@@ -52,6 +52,7 @@ import alter.graphics.Canvas as RiverCanvas
 
 fun main(args: Array<String>) {
     val store = Store(defaultDataDirectory())
+    store.recoverInterruptedRuns()
     val preview = args.firstOrNull { it.startsWith("--preview=") }?.substringAfter('=')
     System.getenv("ALTER_DATA_DIR")?.let {
         val cache = Path.of(it, "skiko")
@@ -125,15 +126,17 @@ fun main(args: Array<String>) {
     } finally { store.close() }
 }
 
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
 @Composable
 private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: Store, project: Project, account: AccountSession?, changeAccount: (AccountSession?) -> Unit, showWindow: () -> Unit, trayAvailable: Boolean, keepInTray: Boolean, setKeepInTray: (Boolean) -> Unit, selectProject: (Project) -> Unit) {
     val scope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(Destination.entries.firstOrNull { it.name.equals(preview, true) } ?: if (preview == "capture") Destination.Home else Destination.Chat) }
     var settings by remember { mutableStateOf<String?>(when (preview) {
-        "plugins" -> "Plugins"; "skills" -> "Skills"; "actions" -> "Actions & schedules"
+        "plugins", "plugin-connect" -> "Plugins"; "skills" -> "Skills"; "actions" -> "Actions & schedules"
         "models" -> "AI models"; "appearance" -> "Appearance"; "about" -> "About"
         "voice" -> "Voice & files"; "backup" -> "Backup & account"; else -> null
     }) }
+    var pluginsFromChat by remember { mutableStateOf(preview in setOf("plugins", "plugin-connect")) }
     var theme by remember { mutableStateOf(store.setting("theme", "Pitch Black")) }
     var reducedMotion by remember { mutableStateOf(store.setting("reducedMotion", "false").toBoolean()) }
     var cards by remember { mutableStateOf(store.cards()) }
@@ -174,21 +177,29 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
     val pond = remember { ShoalSimulation() }
     val hardware = remember { hardwareBudget() }
     val dark = theme == "Pitch Black" || (theme == "Device" && isSystemInDarkTheme())
-    val satoshi = remember {
-        runCatching {
-            val font = Thread.currentThread().contextClassLoader.getResourceAsStream("fonts/satoshi_regular.otf")
-                ?: error("Satoshi unavailable")
-            font.use { FontFamily(androidx.compose.ui.text.platform.Font("Satoshi", it.readBytes())) }
-        }.getOrDefault(FontFamily.SansSerif)
+    val systemFont = remember {
+        val font = java.awt.Toolkit.getDefaultToolkit().getDesktopProperty("win.messagebox.font") as? java.awt.Font
+        if (System.getProperty("os.name").startsWith("Windows")) FontFamily(font?.family ?: "Segoe UI")
+        else FontFamily.Default
     }
     val colors = if (dark) DarkColorScheme else LightColorScheme
-    val typography = Typography().let { t -> t.copy(
-        headlineSmall = t.headlineSmall.copy(fontFamily = satoshi, fontSize = 26.sp, lineHeight = 34.sp),
-        titleMedium = t.titleMedium.copy(fontFamily = satoshi),
-        titleLarge = t.titleLarge.copy(fontFamily = satoshi, fontSize = 20.sp, lineHeight = 28.sp),
-        bodyLarge = t.bodyLarge.copy(fontFamily = satoshi, fontSize = 16.sp, lineHeight = 24.sp),
-        bodyMedium = t.bodyMedium.copy(fontFamily = satoshi, fontSize = 14.sp, lineHeight = 20.sp),
-        labelLarge = t.labelLarge.copy(fontFamily = satoshi), bodySmall = t.bodySmall.copy(fontFamily = satoshi)) }
+    val typography = remember(systemFont) { Typography().let { t -> t.copy(
+        displayLarge = t.displayLarge.copy(fontFamily = systemFont),
+        displayMedium = t.displayMedium.copy(fontFamily = systemFont),
+        displaySmall = t.displaySmall.copy(fontFamily = systemFont),
+        headlineLarge = t.headlineLarge.copy(fontFamily = systemFont),
+        headlineMedium = t.headlineMedium.copy(fontFamily = systemFont),
+        headlineSmall = t.headlineSmall.copy(fontFamily = systemFont, fontSize = 26.sp, lineHeight = 34.sp),
+        titleLarge = t.titleLarge.copy(fontFamily = systemFont, fontSize = 20.sp, lineHeight = 28.sp),
+        titleMedium = t.titleMedium.copy(fontFamily = systemFont),
+        titleSmall = t.titleSmall.copy(fontFamily = systemFont),
+        bodyLarge = t.bodyLarge.copy(fontFamily = systemFont, fontSize = 16.sp, lineHeight = 24.sp),
+        bodyMedium = t.bodyMedium.copy(fontFamily = systemFont, fontSize = 14.sp, lineHeight = 20.sp),
+        bodySmall = t.bodySmall.copy(fontFamily = systemFont),
+        labelLarge = t.labelLarge.copy(fontFamily = systemFont),
+        labelMedium = t.labelMedium.copy(fontFamily = systemFont),
+        labelSmall = t.labelSmall.copy(fontFamily = systemFont)
+    ) } }
     fun attempt(action: () -> Unit) { try { action() } catch (e: Exception) { error = e.message ?: "Could not save. Your editor is still open." } }
     fun openThread(id: Long?) {
         if (generation != null || speaking || modelWork != null) return
@@ -293,7 +304,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
         }
     }
     var pendingAction by remember { mutableStateOf<DesktopAction?>(null) }
+    var addContext by remember { mutableStateOf(false) }
     var projectSkills by remember { mutableStateOf(store.projectSkills()) }
+    var repoGrant by remember { mutableStateOf<RepoGrant?>(null) }
     val pluginGrants = remember { mutableStateMapOf<ServicePlugin, PluginGrant>() }
     var palette by remember { mutableStateOf(false) }
     var proposalThread by remember { mutableStateOf<Long?>(null) }
@@ -360,6 +373,15 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
         }
     }
     MaterialTheme(colorScheme = colors, typography = typography) {
+        if (addContext) ReferencePicker(cards, { card ->
+            val label = if (card.type == "text") "Memory" else "Note"
+            val title = card.rawInput.ifBlank { card.processedContent }.lineSequence().first().take(90)
+            val excerpt = card.processedContent.ifBlank { card.rawInput }.take(4000)
+            val combined = listOf(prompt.trim(), "Reference · $label #${card.id} · $title\n$excerpt")
+                .filter(String::isNotBlank).joinToString("\n\n")
+            if (combined.length <= 16000) prompt = combined else error = "Shorten the draft before adding this reference."
+            addContext = false
+        }, { addContext = false })
         if (palette) {
             val commands = availableCommands()
             var query by remember { mutableStateOf("") }
@@ -385,8 +407,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                         }
                         generation = scope.launch {
                             try {
-                                val run = catalog.beginRun(project.id, action)
-                                val result = catalog.executeRun(run, action, store.setting("figmaEnabled").toBoolean(), pluginGrants[action.plugin])
+                                val run = catalog.beginRun(project.id, action, id)
+                                val result = catalog.executeRun(run, action, store.setting("figmaEnabled").toBoolean(), pluginGrants[action.plugin], repoGrant?.takeIf { it.repository == store.setting("githubRepo") })
                                 if (id != null) {
                                     store.addMessage(id, "action", result)
                                     messages = store.messages(id); threads = store.threads()
@@ -414,16 +436,19 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             }) {
                 val compact = maxWidth < 850.dp
                 val wide = maxWidth >= 1160.dp
-                var sidebar by remember(compact) { mutableStateOf(!compact) }
+                var sidebar by remember(compact) { mutableStateOf(!compact && preview != "navigation-collapsed") }
                 var details by remember(wide) { mutableStateOf(wide) }
                 val canSwitch = generation == null && modelWork == null && !speaking
                 val selectedThread = threads.firstOrNull { it.id == threadId }
                 val sidebarContent = @Composable {
-                    WorkspaceSidebar(settings, threadId.takeIf { settings == null && destination == Destination.Chat },
+                    val chatPlugins = settings == "Plugins" && pluginsFromChat
+                    WorkspaceSidebar(if (chatPlugins) null else settings, destination == Destination.Chat, chatPlugins, {
+                        pluginsFromChat = true; settings = "Plugins"; if (compact) sidebar = false
+                    }, threadId.takeIf { settings == null && destination == Destination.Chat },
                         filteredThreads, historyQuery, { historyQuery = it },
                         { openThread(null); if (compact) sidebar = false },
                         { openThread(it); if (compact) sidebar = false }, canSwitch,
-                        { settings = it; if (compact) sidebar = false },
+                        { pluginsFromChat = false; settings = it; if (compact) sidebar = false },
                         { thread -> attempt { store.updateThread(thread); threads = store.threads() } },
                         remember(cards) { mapOf(Destination.Memories to cards.count { it.type == "text" },
                             Destination.Upcoming to cards.count { it.type == "upcoming" }, Destination.Notes to cards.count { it.type == "note" }) },
@@ -440,12 +465,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                         verticalAlignment = Alignment.CenterVertically) {
                         Box {
                             WorkspaceButton(AlterIcons.SidebarLeft, if (sidebar) "Collapse navigation" else "Expand navigation", sidebar) { sidebar = !sidebar }
-                            if (compact) DropdownMenu(sidebar, { sidebar = false }) {
-                                Box(Modifier.width(245.dp).height(365.dp)) { sidebarContent() }
-                            }
                         }
-                        if (canSwitch) WorkspaceButton(AlterIcons.Search, "Commands (Ctrl+K)") { palette = true }
-                        ProjectPicker(project, catalog, canSwitch && prompt.isBlank(), selectProject)
                         Text(settings ?: if (destination == Destination.Chat) selectedThread?.title ?: "New chat"
                             else destination.title, Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 14.sp,
                             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -461,15 +481,15 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     }
                     HorizontalDivider(color = colors.outline)
                     Row(Modifier.fillMaxSize()) {
-                if (compact || sidebar) Row(Modifier.fillMaxHeight().padding(5.dp).clip(RoundedCornerShape(16.dp))
-                    .background(colors.surface).border(1.dp, colors.outline, RoundedCornerShape(16.dp)).padding(2.dp)) {
-                ActivityRail(destination, settings != null, { destination = it; settings = null; search = "" },
-                    { settings = "Appearance"; if (!compact) sidebar = true },
-                    if (compact) null else ({ sidebar = false }))
-                if (sidebar && !compact) {
+                Row(Modifier.fillMaxHeight().background(colors.surface)) {
+                ActivityRail(destination, settings != null && !(settings == "Plugins" && pluginsFromChat), { destination = it; settings = null; search = "" },
+                    { pluginsFromChat = false; settings = "Appearance"; sidebar = true },
+                    if (sidebar) ({ sidebar = false }) else null)
+                if (sidebar) {
                     Box(Modifier.width(174.dp)) { sidebarContent() }
                 }
                 }
+                VerticalDivider(color = colors.outline)
                 Box(Modifier.weight(1f).fillMaxHeight()) {
                 River(pond, showRiver, active && !reducedMotion && draft == null,
                     if (destination == Destination.Chat) if (messages.isEmpty()) .40f else .045f else .50f, dark)
@@ -488,9 +508,18 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     if (settings != null) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         when (settings) {
+                            "Workspace" -> {
+                                Text("Project", style = MaterialTheme.typography.titleMedium)
+                                ProjectPicker(project, catalog, canSwitch && prompt.isBlank(), selectProject)
+                                var toolSuggestions by remember { mutableStateOf(store.setting("modelTools").toBoolean()) }
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(toolSuggestions, { toolSuggestions = it; store.setting("modelTools", it.toString(), true) })
+                                    Text("Share enabled tool names and repository with the chat model")
+                                }
+                                TextButton(enabled = canSwitch, onClick = { palette = true }) { Text("Commands · Ctrl+K") }
+                            }
                             "Appearance" -> {
-                                Text("Appearance", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("Appearance and motion across your private workspace.", color = colors.onSurface.copy(alpha = .62f))
+                                Text("Font · System default", color = colors.onSurface.copy(alpha = .70f))
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(18.dp)) {
                                     Text("Theme", fontWeight = FontWeight.Bold)
@@ -505,125 +534,19 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                         Checkbox(reducedMotion, onCheckedChange = { value -> attempt { store.setting("reducedMotion", value.toString(), true); reducedMotion = value } })
                                         Column {
                                             Text("Reduce motion")
-                                            Text("Pause decorative movement.", color = colors.onSurface.copy(alpha = .55f), style = MaterialTheme.typography.bodySmall)
                                         }
                                     }
                                 }
                             }
                             "AI models" -> {
-                                Text("AI models", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("Download a model once, then chat or dictate offline. Nothing starts until you choose it.",
-                                    color = colors.onSurface.copy(alpha = .66f))
-                                Text("This PC: about ${hardware.ramBytes / (1024 * 1024 * 1024)} GB RAM · ${hardware.processors} CPU threads. Suggested text model: ${models.first { it.id == hardware.suggestedTextId }.title}.",
-                                    style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .65f))
                                 if (modelStatus.isNotBlank()) Text(modelStatus, color = AlterYellow)
 
-                                Text("Bundled model runtime: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    TextButton(onClick = { attempt {
-                                        val chooser = javax.swing.JFileChooser()
-                                        chooser.dialogTitle = "Choose a compatible Windows CUDA llama-server.exe"
-                                        if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
-                                            val selected = chooser.selectedFile.toPath()
-                                            require(selected.fileName.toString().equals("llama-server.exe", true)) { "Choose llama-server.exe." }
-                                            store.setting("cudaServer", selected.toString(), true); customRuntime = selected.toString()
-                                        }
-                                    } }) { Text("Use NVIDIA GPU runtime…") }
-                                    if (customRuntime.isNotBlank()) TextButton(onClick = {
-                                        store.setting("cudaServer", "", true); customRuntime = ""
-                                    }) { Text("Use included CPU") }
-                                }
-                                Text("The included CPU engine works on compatible PCs. For RTX 4050, select a compatible CUDA llama-server.exe with its DLLs beside it.",
-                                    style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .55f))
-                                var keyInput by remember { mutableStateOf("") }
-                                var cloudModel by remember { mutableStateOf(store.setting("openAiModel", "gpt-4.1-mini")) }
-                                var saveKey by remember { mutableStateOf(false) }
-                                Text("OpenAI API", style = MaterialTheme.typography.titleMedium)
-                                Text("When selected, sending a message sends Alter’s instructions, project instructions and up to 20 messages from the open conversation to OpenAI. Keys stay in memory unless you choose Windows Credential Manager.", style = MaterialTheme.typography.bodySmall)
-                                OutlinedTextField(keyInput, { keyInput = it.trim() }, singleLine = true, label = { Text("OpenAI API key") },
-                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
-                                OutlinedTextField(cloudModel, { cloudModel = it.trim() }, singleLine = true, label = { Text("Chat Completions model ID") })
-                                if (WindowsIntegration.available) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Checkbox(saveKey, { saveKey = it })
-                                        Text("Save this project’s key in Windows Credential Manager")
-                                    }
-                                    if (store.setting("savedOpenAiKey").toBoolean()) Row {
-                                        TextButton(enabled = canSwitch, onClick = { attempt {
-                                            keyInput = WindowsIntegration.credential("load", project.id)
-                                            modelStatus = "Saved key loaded. Select Use OpenAI for chat."
-                                        } }) { Text("Load saved key") }
-                                        TextButton(onClick = { attempt {
-                                            WindowsIntegration.credential("forget", project.id)
-                                            store.setting("savedOpenAiKey", "false", true); keyInput = ""; cloud = null; saveKey = false
-                                        } }) { Text("Forget saved key") }
-                                    }
-                                }
-                                TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = { attempt {
-                                    if (saveKey && WindowsIntegration.available) {
-                                        WindowsIntegration.credential("save", project.id, keyInput)
-                                        store.setting("savedOpenAiKey", "true", true)
-                                    }
-                                    store.setting("openAiModel", cloudModel, true)
-                                    importedModel = null
-                                    native.stop()
-                                    activeModel = null
-                                    runtimeModel = null
-                                    cloud = OpenAiSession(keyInput, cloudModel)
-                                    keyInput = ""
-                                    modelStatus = "OpenAI selected for chat."
-                                } }) { Text("Use OpenAI for chat") }
-                                if (cloud != null) TextButton(enabled = canSwitch, onClick = {
-                                    cloud = null
-                                    keyInput = ""
-                                    modelStatus = "OpenAI disconnected."
-                                }) { Text("Disconnect OpenAI") }
-                                TextButton(enabled = canSwitch, onClick = { attempt {
-                                    val chooser = javax.swing.JFileChooser()
-                                    chooser.dialogTitle = "Use a local GGUF text model"
-                                    chooser.fileFilter = javax.swing.filechooser.FileNameExtensionFilter("GGUF models", "gguf")
-                                    if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION)
-                                        activateModel(null, chooser.selectedFile.toPath())
-                                } }) { Text("Use a GGUF file on this PC…") }
-                                Text("Other runtimes on this PC", style = MaterialTheme.typography.titleMedium)
-                                Text("Start Ollama or the LM Studio local server, then check for models.", style = MaterialTheme.typography.bodySmall)
-                                TextButton(enabled = canSwitch, onClick = {
-                                    modelWork = scope.launch {
-                                        try {
-                                            val found = mutableListOf<RuntimeModel>()
-                                            val statuses = mutableListOf<String>()
-                                            for (runtime in DesktopRuntime.entries) {
-                                                try {
-                                                    val names = LocalChat(runtime.port).installedModels(runtime)
-                                                    found += names.map { RuntimeModel(runtime, it) }
-                                                    statuses += "${runtime.title}: ${names.size} listed"
-                                                } catch (e: CancellationException) { throw e }
-                                                catch (e: Exception) { statuses += "${runtime.title}: unavailable on port ${runtime.port}" }
-                                            }
-                                            detectedModels = found
-                                            modelStatus = statuses.joinToString(" · ")
-                                        } finally { modelWork = null }
-                                    }
-                                }) { Text("Find installed models") }
-                                detectedModels.forEach { model ->
-                                    TextButton(enabled = canSwitch && runtimeModel != model, onClick = {
-                                        importedModel = null
-                                    native.stop()
-                                        activeModel = null
-                                        cloud = null
-                                        runtimeModel = model
-                                        modelStatus = "Selected ${model.label}."
-                                    }) { Text(model.label) }
-                                }
                                 models.forEach { spec ->
                                     if (spec.id == "qwen-small" || spec.id == "whisper-tiny") {
                                         Spacer(Modifier.height(12.dp))
                                         Text(if (spec.kind == "text") "Text models" else "Voice models",
                                             style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                        Text(if (spec.kind == "text") "Start small. You can switch later."
-                                            else "Dictation fills a draft you can review before sending.",
-                                            color = colors.onSurface.copy(alpha = .58f), style = MaterialTheme.typography.bodySmall)
-                                    }
+                                            }
                                     Row(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(16.dp))
                                         .border(1.dp, colors.outline, RoundedCornerShape(16.dp)).padding(18.dp),
                                         verticalAlignment = Alignment.CenterVertically) {
@@ -654,19 +577,122 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 }
                                 if (modelWork != null) TextButton(onClick = { modelWork?.cancel() }) { Text("Cancel download / startup") }
                                 if (activeModel != null || importedModel != null) TextButton(enabled = canSwitch, onClick = { native.stop(); activeModel = null; importedModel = null; modelStatus = "Local model stopped." }) { Text("Release model") }
+                                var advanced by remember { mutableStateOf(false) }
+                                TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide other providers" else "Other providers & runtimes…") }
+                                if (advanced) {
+                                    Text("Bundled model runtime: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        TextButton(onClick = { attempt {
+                                            val chooser = javax.swing.JFileChooser()
+                                            chooser.dialogTitle = "Choose a compatible Windows CUDA llama-server.exe"
+                                            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                                                val selected = chooser.selectedFile.toPath()
+                                                require(selected.fileName.toString().equals("llama-server.exe", true)) { "Choose llama-server.exe." }
+                                                store.setting("cudaServer", selected.toString(), true); customRuntime = selected.toString()
+                                            }
+                                        } }) { Text("Use NVIDIA GPU runtime…") }
+                                        if (customRuntime.isNotBlank()) TextButton(onClick = {
+                                            store.setting("cudaServer", "", true); customRuntime = ""
+                                        }) { Text("Use included CPU") }
+                                    }
+                                    Text("The included CPU engine works on compatible PCs. For RTX 4050, select a compatible CUDA llama-server.exe with its DLLs beside it.",
+                                        style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .55f))
+                                    var keyInput by remember { mutableStateOf("") }
+                                    var cloudModel by remember { mutableStateOf(store.setting("openAiModel", "gpt-4.1-mini")) }
+                                    var saveKey by remember { mutableStateOf(false) }
+                                    Text("OpenAI API", style = MaterialTheme.typography.titleMedium)
+                                    Text("When selected, sending a message sends Alter’s instructions, project instructions and up to 20 messages from the open conversation to OpenAI. Keys stay in memory unless you choose Windows Credential Manager.", style = MaterialTheme.typography.bodySmall)
+                                    OutlinedTextField(keyInput, { keyInput = it.trim() }, singleLine = true, label = { Text("OpenAI API key") },
+                                        visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                                    OutlinedTextField(cloudModel, { cloudModel = it.trim() }, singleLine = true, label = { Text("Chat Completions model ID") })
+                                    if (WindowsIntegration.available) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(saveKey, { saveKey = it })
+                                            Text("Save this project’s key in Windows Credential Manager")
+                                        }
+                                        if (store.setting("savedOpenAiKey").toBoolean()) Row {
+                                            TextButton(enabled = canSwitch, onClick = { attempt {
+                                                keyInput = WindowsIntegration.credential("load", project.id)
+                                                modelStatus = "Saved key loaded. Select Use OpenAI for chat."
+                                            } }) { Text("Load saved key") }
+                                            TextButton(onClick = { attempt {
+                                                WindowsIntegration.credential("forget", project.id)
+                                                store.setting("savedOpenAiKey", "false", true); keyInput = ""; cloud = null; saveKey = false
+                                            } }) { Text("Forget saved key") }
+                                        }
+                                    }
+                                    TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = { attempt {
+                                        if (saveKey && WindowsIntegration.available) {
+                                            WindowsIntegration.credential("save", project.id, keyInput)
+                                            store.setting("savedOpenAiKey", "true", true)
+                                        }
+                                        store.setting("openAiModel", cloudModel, true)
+                                        importedModel = null
+                                        native.stop()
+                                        activeModel = null
+                                        runtimeModel = null
+                                        cloud = OpenAiSession(keyInput, cloudModel)
+                                        keyInput = ""
+                                        modelStatus = "OpenAI selected for chat."
+                                    } }) { Text("Use OpenAI for chat") }
+                                    if (cloud != null) TextButton(enabled = canSwitch, onClick = {
+                                        cloud = null
+                                        keyInput = ""
+                                        modelStatus = "OpenAI disconnected."
+                                    }) { Text("Disconnect OpenAI") }
+                                    TextButton(enabled = canSwitch, onClick = { attempt {
+                                        val chooser = javax.swing.JFileChooser()
+                                        chooser.dialogTitle = "Use a local GGUF text model"
+                                        chooser.fileFilter = javax.swing.filechooser.FileNameExtensionFilter("GGUF models", "gguf")
+                                        if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION)
+                                            activateModel(null, chooser.selectedFile.toPath())
+                                    } }) { Text("Use a GGUF file on this PC…") }
+                                    Text("Other runtimes on this PC", style = MaterialTheme.typography.titleMedium)
+                                    Text("Start Ollama or the LM Studio local server, then check for models.", style = MaterialTheme.typography.bodySmall)
+                                    TextButton(enabled = canSwitch, onClick = {
+                                        modelWork = scope.launch {
+                                            try {
+                                                val found = mutableListOf<RuntimeModel>()
+                                                val statuses = mutableListOf<String>()
+                                                for (runtime in DesktopRuntime.entries) {
+                                                    try {
+                                                        val names = LocalChat(runtime.port).installedModels(runtime)
+                                                        found += names.map { RuntimeModel(runtime, it) }
+                                                        statuses += "${runtime.title}: ${names.size} listed"
+                                                    } catch (e: CancellationException) { throw e }
+                                                    catch (e: Exception) { statuses += "${runtime.title}: unavailable on port ${runtime.port}" }
+                                                }
+                                                detectedModels = found
+                                                modelStatus = statuses.joinToString(" · ")
+                                            } finally { modelWork = null }
+                                        }
+                                    }) { Text("Find installed models") }
+                                    detectedModels.forEach { model ->
+                                        TextButton(enabled = canSwitch && runtimeModel != model, onClick = {
+                                            importedModel = null
+                                            native.stop()
+                                            activeModel = null
+                                            cloud = null
+                                            runtimeModel = model
+                                            modelStatus = "Selected ${model.label}."
+                                        }) { Text(model.label) }
+                                    }
+                                }
                             }
                             "Skills" -> ProjectSkillsPanel(store, projectSkills) { projectSkills = store.projectSkills() }
-                            "Plugins" -> PluginPanel(store, pluginGrants, { settings = "Actions & schedules" })
+                            "Plugins" -> PluginPanel(store, pluginGrants, repoGrant, { repoGrant = it }, preview == "plugin-connect", { settings = "Actions & schedules" })
                             "Actions & schedules" -> {
                                 if (trayAvailable) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(keepInTray, onCheckedChange = setKeepInTray)
                                     Text("Keep Alter running in the tray when closed")
                                 }
-                                ActivityPanel(catalog, store, project, { reviewAction(it, null) }, canSwitch)
+                                ActivityPanel(catalog, store, project, { reviewAction(it, null) }, canSwitch, ::openThread) { projectSkills = store.projectSkills() }
                             }
                             "Voice & files" -> {
                                 Text("Dictation", style = MaterialTheme.typography.headlineSmall)
                                 Text("Choose a Whisper model in AI models. Tap the microphone in chat to record, then stop to review the transcript.")
+                                TextButton(onClick = { attempt { draft = readDocumentDraft() } }) { Text("Import a text or Markdown document…") }
+                                Text("Imported files open as project notes for review. Use the plus in chat to add a saved note or memory to a draft.")
                                 if (WindowsIntegration.available) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(shortcut, { shortcut = it; store.setting("voiceShortcut", it.toString(), true) }, enabled = !speaking)
                                     Text("Hold Ctrl + Alt + Space anywhere to dictate into Alter")
@@ -675,17 +701,13 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                             "Backup & account" -> AccountPanel(account, changeAccount)
                             "About" -> {
                                 Text("About Alter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                                Text("Version details and the path to a newer Windows build.", color = colors.onSurface.copy(alpha = .62f))
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("Alter for Windows · 0.2.0", fontWeight = FontWeight.Bold)
+                                    Text("Alter for Windows · 0.2.1", fontWeight = FontWeight.Bold)
                                     Text("Install a newer MSI to upgrade. Your notes and downloaded models stay under your Windows user profile.")
                                     TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(
                                         "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("View latest build ↗") }
-                                    HorizontalDivider(color = colors.outline)
-                                    Text("Android dashboard reference · 5b05604",
-                                        color = colors.onSurface.copy(alpha = .5f), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }
@@ -695,18 +717,20 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                             ChatPane(messages, prompt, { prompt = it.take(16000) },
                                 modelLabel, installed,
                                 modelWork != null, speaking, generation != null,
-                                projectSkills, { skill ->
+                                { addContext = true }, projectSkills, { skill ->
                                     val combined = listOf(skill.instructions, prompt).filter(String::isNotBlank).joinToString("\n\n")
                                     if (combined.length <= 16000) prompt = combined else error = "Shorten the draft before adding this skill."
                                 }, if (speaking || modelWork != null) modelStatus else "",
                                 { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, { type ->
-                                    draft = AlterCard(type = type, rawInput = if (type == "note") "" else prompt, processedContent = prompt)
+                                    draft = AlterCard(type = type, rawInput = if (type == "note") "" else prompt, processedContent = prompt, source = "Chat draft")
                                 }, {
                                 toggleMic()
                             }, ::send, { generation?.cancel() })
                         }
                     } else if (destination == Destination.Home) {
-                        HomeContent(cards, { destination = Destination.Chat }, { destination = Destination.Upcoming },
+                        var latest by remember { mutableStateOf(catalog.activity(project.id).firstOrNull()) }
+                        LaunchedEffect(project.id) { while (true) { latest = catalog.activity(project.id).firstOrNull(); delay(5000) } }
+                        HomeContent(cards, latest, { settings = "Actions & schedules" }, { destination = Destination.Chat }, { destination = Destination.Upcoming },
                             { draft = it }, { delete = it }, { card, text -> attempt {
                                 store.save(completeCardTask(card, text)); cards = store.cards()
                             } }, Modifier.weight(1f))
@@ -781,16 +805,16 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     store.save(edited); cards = store.cards(); draft = null
                 } })
             }
-            delete?.let { card -> AlertDialog(onDismissRequest = { delete = null }, title = { Text("Delete this entry?") },
-                text = { Text("It will be removed from your lists.") }, confirmButton = { TextButton(onClick = { attempt {
+            delete?.let { card -> AlertDialog(onDismissRequest = { delete = null }, title = { Text(if (card.type == "text") "Forget this memory?" else "Delete this entry?") },
+                text = { Text(if (card.type == "text") "Removes this memory from project context. Drafts and messages that already quote it keep their copies." else "It will be removed from your lists.") }, confirmButton = { TextButton(onClick = { attempt {
                     store.delete(card.id); cards = store.cards(); delete = null
-                } }) { Text("Delete") } }, dismissButton = { TextButton(onClick = { delete = null }) { Text("Cancel") } }) }
+                } }) { Text(if (card.type == "text") "Forget" else "Delete") } }, dismissButton = { TextButton(onClick = { delete = null }) { Text("Cancel") } }) }
         }
     }
 }
 
 @Composable
-private fun HomeContent(cards: List<AlterCard>, onChat: () -> Unit, onUpcoming: () -> Unit,
+private fun HomeContent(cards: List<AlterCard>, latest: RunEntry?, openActivity: () -> Unit, onChat: () -> Unit, onUpcoming: () -> Unit,
     onEdit: (AlterCard) -> Unit, onDelete: (AlterCard) -> Unit,
     onComplete: (AlterCard, String) -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
@@ -798,6 +822,7 @@ private fun HomeContent(cards: List<AlterCard>, onChat: () -> Unit, onUpcoming: 
     val recent = cards.filter { it.type != "upcoming" }.take(2)
     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
         WorkspaceRow("Open Alter AI", AlterIcons.Chat, onClick = onChat)
+        WorkspaceRow(latest?.let { "${it.action.title} · ${it.state}" } ?: "Actions & schedules", AlterIcons.Calendar, onClick = openActivity)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Text("Overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -869,6 +894,7 @@ private fun Editor(card: AlterCard, onDismiss: () -> Unit, onSave: (AlterCard) -
     var type by remember(card) { mutableStateOf(card.type) }
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (card.id == 0L) "Capture" else "Edit entry") },
         text = { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(card.source, style = MaterialTheme.typography.bodySmall)
             if (card.id == 0L) Row {
                 listOf("text" to "Memory", "note" to "Note", "upcoming" to "Task").forEach { (value,label) ->
                     FilterChip(type == value, onClick = { type = value }, label = { Text(label) })

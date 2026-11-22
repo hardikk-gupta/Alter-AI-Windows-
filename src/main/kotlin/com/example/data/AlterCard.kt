@@ -13,5 +13,6 @@ data class AlterCard(
     val personalNotes: String = "",
     val canvasData: String? = null,
     val isPendingAi: Boolean = false,
-    val lastError: String? = null
+    val lastError: String? = null,
+    val source: String = "Manual capture"
 )

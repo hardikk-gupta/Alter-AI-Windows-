@@ -10,11 +10,12 @@ import kotlinx.coroutines.delay
 import java.time.*
 
 @Composable
-internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, run: (DesktopAction) -> Unit, enabled: Boolean) {
+internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, run: (DesktopAction) -> Unit, enabled: Boolean, openChat: (Long) -> Unit, skillsChanged: () -> Unit) {
     var repo by remember { mutableStateOf(workspace.setting("githubRepo")) }
     var schedule by remember { mutableStateOf(catalog.schedules().find { it.project == project.id }) }
     var time by remember { mutableStateOf(schedule?.time?.toString() ?: "09:00") }
     var status by remember { mutableStateOf("") }
+    val threadIds = remember { workspace.threads().map { it.id }.toSet() }
     var activity by remember { mutableStateOf(catalog.activity(project.id)) }
     LaunchedEffect(project.id) { while (true) {
         activity = catalog.activity(project.id)
@@ -22,7 +23,7 @@ internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, r
         delay(2000)
     } }
     Text("Actions & schedules", style = MaterialTheme.typography.titleLarge)
-    OutlinedTextField(repo, { repo = it.trim().take(150) }, singleLine = true, label = { Text("Public GitHub repository · owner/name") })
+    OutlinedTextField(repo, { repo = it.trim().take(150) }, singleLine = true, label = { Text("GitHub repository · owner/name") })
     TextButton(enabled = validRepo(repo), onClick = { workspace.setting("githubRepo",repo,true); status = "Repository saved for this project." }) { Text("Save repository") }
     Text("Type or dictate “review my repo”, “open my repo”, or “open Spotify” in chat, then review the action.")
     Text("Weekday repository brief", style = MaterialTheme.typography.titleMedium)
@@ -42,7 +43,7 @@ internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, r
             catalog.saveSchedule(changed); schedule = changed
         }) { Text(if (current.enabled) "Pause" else "Resume") }
     }
-    Text("Alter must be running. A missed brief runs once when Alter resumes.")
+    Text("Scheduled checks use public repository access. Alter must be running. A missed brief runs once when Alter resumes.")
     if (status.isNotEmpty()) Text(status)
     Text("Activity", style = MaterialTheme.typography.titleMedium)
     if (activity.isEmpty()) Text("No actions yet in this project.")
@@ -50,7 +51,20 @@ internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, r
         Column(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             Text("${entry.action.title} · ${entry.state}")
             if (entry.result.isNotEmpty()) SelectionContainer { Text(entry.result, style = MaterialTheme.typography.bodySmall) }
-            TextButton(enabled = enabled && entry.state != "running", onClick = { run(entry.action) }) { Text("Run again") }
+            if (entry.started > 0) Text(Instant.ofEpochMilli(entry.started).atZone(ZoneId.systemDefault()).toLocalDateTime()
+                .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy · HH:mm")), style = MaterialTheme.typography.bodySmall)
+            Row {
+                TextButton(enabled = enabled && entry.state != "running", onClick = { run(entry.action) }) { Text("Run again") }
+                if (entry.thread != null && entry.thread in threadIds)
+                    TextButton(enabled = enabled, onClick = { openChat(entry.thread) }) { Text("Open chat") }
+                if (entry.state == "completed") TextButton(onClick = {
+                    try {
+                        val skill = ProjectSkill(entry.action.title.take(100), entry.action.command)
+                        workspace.saveSkills(workspace.projectSkills() + skill)
+                        skillsChanged(); status = "Saved to project skills."
+                    } catch (e: IllegalArgumentException) { status = e.message ?: "Could not save skill." }
+                }) { Text("Save as skill") }
+            }
         }
     }
 }

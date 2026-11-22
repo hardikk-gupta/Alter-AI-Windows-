@@ -14,11 +14,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-      - name: Verify official fonts
-        run: python scripts/setup_fonts.py
       - name: Linux source checks
         if: runner.os == 'Linux'
         run: ./gradlew test
@@ -73,6 +68,26 @@ jobs:
             Write-Host "::error title=MSI verification failed::$($_.Exception.Message)"
             throw
           }
+      - name: Open the packaged Plugins screen on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $app = (Resolve-Path "build/compose/binaries/main/app/Alter/Alter.exe").Path
+          $process = Start-Process -FilePath $app -ArgumentList '--preview=plugins','--screenshot' -WorkingDirectory $pwd -PassThru
+          if (-not $process.WaitForExit(90000)) {
+            $process.Kill()
+            throw "The packaged app did not finish the screen capture"
+          }
+          if ($process.ExitCode -ne 0 -or -not (Test-Path build/screenshots/plugins.png)) {
+            throw "The packaged app did not render Plugins"
+          }
+      - name: Upload Windows screen preview
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Alter-Windows-Screen
+          path: build/screenshots/plugins.png
+          if-no-files-found: error
       - name: Cache verified Qwen test weights
         if: runner.os == 'Windows'
         uses: actions/cache@v5

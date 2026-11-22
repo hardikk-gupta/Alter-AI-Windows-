@@ -19,7 +19,7 @@ internal object WindowsIntegration {
     }
 
     suspend fun watchShortcut(event: suspend (String) -> Unit) = coroutineScope {
-        val process = ProcessBuilder(program.toString(), "shortcut").start()
+        val process = ProcessBuilder(program.toString(), "shortcut", ProcessHandle.current().pid().toString()).start()
         try {
             withContext(Dispatchers.IO) {
                 process.inputStream.bufferedReader().use { reader ->

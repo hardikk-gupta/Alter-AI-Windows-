@@ -19,7 +19,7 @@ A Windows user can speak or type a request, choose where inference happens, use 
 
 ## Preview branch status
 
-The project picker opens separate local databases for each project. Personal retains the existing database. Workspace instructions accompany model requests. Settings → AI models can load a user-selected GGUF with the bundled engine. Settings → Actions & schedules supports reviewed “open Spotify”, “open my repo” and “review my repo” commands, per-project Activity and one weekday public-repository workflow brief per project. A missed brief runs once on resume. Tray mode is opt-in.
+Settings → Workspace opens separate local databases for each project. Personal retains the existing database. Workspace instructions accompany model requests. Settings → AI models can load a user-selected GGUF with the bundled engine. Settings → Actions & schedules supports reviewed “open Spotify”, “open my repo” and “review my repo” commands, per-project Activity and one weekday public-repository workflow brief per project. A missed brief runs once on resume. Tray mode is opt-in.
 
 Google desktop PKCE and GitHub device authorization exchange their credentials with Firebase. Unconfigured providers show “setup required”. To test, enable both providers in the same Firebase project, register a Google desktop client and enable Device Flow for the GitHub OAuth app. Supply ALTER_FIREBASE_WEB_API_KEY, ALTER_GOOGLE_DESKTOP_CLIENT_ID, ALTER_GOOGLE_DESKTOP_CLIENT_SECRET and ALTER_GITHUB_CLIENT_ID in the app process environment. GitHub's server-side client secret belongs in Firebase. Live sign-in, linking and revocation require registered clients and test accounts.
 
@@ -28,6 +28,8 @@ Google desktop PKCE and GitHub device authorization exchange their credentials w
 Each project can enable the Figma Desktop MCP server on loopback. Alter initializes the session, discovers get_metadata and reads the selected layer after confirmation. Google Calendar reads upcoming events and Drive lists recent file metadata with separate browser grants. Enable the respective Google APIs on the configured Google Cloud project. Spotify playback needs a Spotify developer app, ALTER_SPOTIFY_CLIENT_ID, a registered redirect of http://127.0.0.1:43897/callback, a Premium listener and an active device. Connector access tokens expire in memory. Disconnect clears the local grant. Provider-side revocation remains available in the provider account.
 
 Plugins can opt a compatible chat model into proposing commands. Alter validates each function against enabled commands and asks for confirmation. Action results appear in Activity and the originating thread. Ctrl+K opens the command list. Project Markdown skills import as reviewable plain instructions. Windows packaging adds a Ctrl+Alt+Space hold-to-dictate shortcut and optional per-project Windows Credential Manager storage for OpenAI. An idle hidden window releases the bundled model after one minute.
+
+Project settings support editing project names and instructions. Import text or Markdown from Voice & files, review it as a note and choose it in the composer’s Add project context dialog. Saved records show their source. Forgetting a memory removes it from the picker. Activity records include timestamps, links to the originating chat and a Save as skill action. Manual GitHub reads can use a fine-grained token bound to the selected repository. Scheduled public briefs use anonymous access.
 
 ## Integration decisions before shipping
 

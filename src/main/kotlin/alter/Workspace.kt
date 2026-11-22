@@ -26,7 +26,7 @@ internal enum class Destination(val title: String, val icon: ImageVector) {
     Home("Home", AlterIcons.Home), Chat("Alter AI", AlterIcons.Chat), Memories("Memories", AlterIcons.Memories),
     Upcoming("Upcoming", AlterIcons.Calendar), Notes("Notes", AlterIcons.FileText)
 }
-internal val settingsPages = listOf("Appearance", "AI models", "Voice & files", "Actions & schedules", "Plugins", "Skills", "Backup & account", "About")
+internal val settingsPages = listOf("Workspace", "Appearance", "AI models", "Voice & files", "Actions & schedules", "Plugins", "Skills", "Backup & account", "About")
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -83,19 +83,19 @@ private fun SectionHeader(name: String, expanded: Boolean, toggle: () -> Unit) {
 }
 
 @Composable
-internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<ChatThread>,
+internal fun WorkspaceSidebar(settings: String?, chat: Boolean, pluginsSelected: Boolean, openPlugins: () -> Unit, active: Long?, threads: List<ChatThread>,
     search: String, setSearch: (String) -> Unit, newChat: () -> Unit, openThread: (Long) -> Unit,
     canSwitch: Boolean, openSettings: (String) -> Unit, update: (ChatThread) -> Unit,
     categories: Map<Destination, Int>, openCategory: (Destination) -> Unit, modelCount: Int) {
     val c = MaterialTheme.colorScheme
-    val expanded = remember { mutableStateMapOf("Favorites" to true, "Chats" to true, "Categories" to true, "Archive" to false) }
-    Column(Modifier.fillMaxSize().clip(RoundedCornerShape(11.dp)).background(
+    val expanded = remember { mutableStateMapOf("Favorites" to true, "Chats" to true, "Library" to true, "Archive" to false) }
+    Column(Modifier.fillMaxSize().background(
         c.surface).padding(vertical = 8.dp, horizontal = 7.dp)) {
         if (settings != null) {
             Text("Settings", Modifier.padding(10.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            settingsPages.forEach { WorkspaceRow(it, selected = settings == it) { openSettings(it) } }
+            Column(Modifier.verticalScroll(rememberScrollState())) { settingsPages.forEach { WorkspaceRow(it, selected = settings == it) { openSettings(it) } } }
         } else {
-            BasicTextField(search, setSearch, Modifier.fillMaxWidth().padding(6.dp).semantics { contentDescription = "Search chats" },
+            if (threads.isNotEmpty() || search.isNotBlank()) BasicTextField(search, setSearch, Modifier.fillMaxWidth().padding(6.dp).semantics { contentDescription = "Search chats" },
                 singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = c.onSurface),
                 cursorBrush = SolidColor(c.primary), decorationBox = { inner ->
                     Row(Modifier.height(29.dp), verticalAlignment = Alignment.CenterVertically,
@@ -105,20 +105,21 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
                     }
                 })
             WorkspaceRow("New chat", AlterIcons.Edit, enabled = canSwitch, onClick = newChat)
+            if (chat) WorkspaceRow("Plugins", AlterIcons.Grid, selected = pluginsSelected, onClick = openPlugins)
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
                 if (search.isNotBlank() && threads.isEmpty()) item { Text("No matching chats", Modifier.padding(8.dp), fontSize = 13.sp) }
-                for (name in listOf("Favorites", "Chats", "Categories", "Archive")) {
+                for (name in listOf("Favorites", "Chats", "Library", "Archive")) {
                     val open = expanded[name] == true || search.isNotBlank()
-                    if (name == "Categories" && search.isNotBlank()) continue
+                    if (name == "Library" && search.isNotBlank()) continue
                     val group = when (name) {
                         "Favorites" -> threads.filter { it.favorite && !it.archived }
                         "Chats" -> threads.filter { !it.favorite && !it.archived }
                         "Archive" -> threads.filter { it.archived }
                         else -> emptyList()
                     }
-                    if (search.isNotBlank() && group.isEmpty()) continue
+                    if (name != "Library" && group.isEmpty()) continue
                     item { SectionHeader(name, open) { expanded[name] = !open } }
-                    if (open && name == "Categories") items(categories.keys.toList()) { dest ->
+                    if (open && name == "Library") items(categories.keys.toList()) { dest ->
                         Row(Modifier.fillMaxWidth().height(30.dp).clickable { openCategory(dest) }.padding(horizontal = 7.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             Icon(dest.icon, null, Modifier.size(13.dp), c.primary.copy(alpha = .8f))
@@ -126,10 +127,6 @@ internal fun WorkspaceSidebar(settings: String?, active: Long?, threads: List<Ch
                             Text(categories.getValue(dest).toString(), fontSize = 11.sp, color = c.onSurface.copy(alpha = .6f))
                         }
                     } else if (open) {
-                        if (group.isEmpty()) item {
-                            Text(when (name) { "Favorites" -> "No favorites yet"; "Archive" -> "No archived chats"; else -> "No chats yet" },
-                                Modifier.padding(start = 25.dp, bottom = 5.dp), fontSize = 11.sp, color = c.onSurface.copy(alpha = .50f))
-                        }
                         items(group, key = { it.id }) { thread ->
                             var menu by remember { mutableStateOf(false) }
                             val selected = active == thread.id

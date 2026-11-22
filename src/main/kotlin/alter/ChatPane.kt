@@ -29,7 +29,7 @@ import com.example.ui.theme.*
 @Composable
 internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, update: (String) -> Unit,
     activeModel: String?, installed: Map<ModelSpec, Boolean>, busy: Boolean, speaking: Boolean, generating: Boolean,
-    projectSkills: List<ProjectSkill>, useSkill: (ProjectSkill) -> Unit,
+    addContext: () -> Unit, projectSkills: List<ProjectSkill>, useSkill: (ProjectSkill) -> Unit,
     status: String, choose: (ModelSpec) -> Unit, manage: () -> Unit, capture: (String) -> Unit, mic: () -> Unit, send: () -> Unit, stop: () -> Unit) {
     val c = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
@@ -76,6 +76,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                     Icon(AlterIcons.Plus, "Capture with a skill", Modifier.size(16.dp))
                 }
                 DropdownMenu(skillsMenu, onDismissRequest = { skillsMenu = false }) {
+                    DropdownMenuItem(text = { Text("Add project context…") }, onClick = { skillsMenu = false; addContext() })
                     projectSkills.filter { it.enabled }.forEach { skill ->
                         DropdownMenuItem(text = { Text(skill.title) }, onClick = { skillsMenu = false; useSkill(skill) })
                     }

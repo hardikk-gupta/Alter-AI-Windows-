@@ -56,6 +56,46 @@ class ProjectActionsTest {
         } finally { directory.toFile().deleteRecursively() }
     }
 
+    @Test fun activityKeepsItsOriginalChatAndRecoversAnInterruptedRun() {
+        val directory = Files.createTempDirectory("alter-activity")
+        try {
+            val firstThread = Store(directory).use { store ->
+                val thread = store.addMessage(null, "user", "Open Spotify")
+                store.beginRun(0, DesktopAction("open_spotify"), thread)
+                store.recoverInterruptedRuns()
+                assertEquals("running", store.activity(0).single().state)
+                store.deleteThread(thread)
+                assertNotEquals(thread, store.addMessage(null, "user", "Different chat"))
+                thread
+            }
+            java.sql.DriverManager.getConnection("jdbc:sqlite:${directory.resolve("alter-desktop.db")}").use { db ->
+                db.createStatement().use { it.executeUpdate("UPDATE activity SET ownerPid=0") }
+            }
+            Store(directory).use { store ->
+                store.recoverInterruptedRuns()
+                assertEquals("interrupted", store.activity(0).single().state)
+                assertEquals(firstThread, store.activity(0).single().thread)
+            }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
+    @Test fun disabledSkillsAndForgottenMemorySurviveRestart() {
+        val directory = Files.createTempDirectory("alter-context")
+        try {
+            Store(directory).use { store ->
+                store.saveSkills(listOf(ProjectSkill("Brief", "/repo checks", false)))
+                store.save(com.example.data.AlterCard(type = "text", rawInput = "Example", processedContent = "Example", source = "Chat draft"))
+                val memory = store.cards().single()
+                assertEquals("Chat draft", memory.source)
+                store.delete(memory.id)
+            }
+            Store(directory).use {
+                assertTrue(it.cards().isEmpty())
+                assertFalse(it.projectSkills().single().enabled)
+            }
+        } finally { directory.toFile().deleteRecursively() }
+    }
+
     @Test fun onlyExplicitCommandsAndRepositoryNamesMatch() {
         assertEquals(DesktopAction("open_spotify"), DesktopAction.parse("Open Spotify!", ""))
         assertNull(DesktopAction.parse("Explain how to open Spotify", ""))

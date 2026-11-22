@@ -14,21 +14,22 @@ If the Windows job has not passed or no artifact appears, use the source steps b
 
 ## Try the desktop preview
 
-Choose **Personal → New project** in the toolbar. Each project has its own chats, notes, settings and instructions. In **Settings → Actions & schedules**, save a public GitHub repository as `owner/name`. In chat, type or dictate **review my repo**, then confirm to fetch the last five workflow runs. This command also works as a guest without a text model. Schedule a weekday brief on the same settings page and enable the tray option to keep it running with the window closed.
+Choose **Settings → Workspace → Personal → New project**. Each project has its own chats, notes, settings and instructions. In **Settings → Actions & schedules**, save a public GitHub repository as `owner/name`. In chat, type or dictate **review my repo**, then confirm to fetch the last five workflow runs. This command also works as a guest without a text model. Schedule a weekday brief on the same settings page and enable the tray option to keep it running with the window closed.
+
+**Chat → Plugins** lists connections. Select **Connect** to see setup and permissions.
 
 **Settings → AI models** supports downloaded Qwen models, local GGUF files, Ollama, LM Studio and a session-only OpenAI key. Google and GitHub sign-in require [provider registration](docs/DESKTOP_PRODUCT_GOAL.md). Preview installers are attached to the successful PR workflow run.
 
 ## Run on Windows
 
-Install a **JDK 21** (not just a JRE) and Python 3. From PowerShell in this checkout:
+Install a **JDK 21**. From PowerShell in this checkout:
 
 ```powershell
-python scripts/setup_fonts.py
 .\gradlew.bat test
 .\gradlew.bat run
 ```
 
-The wrapper pins Gradle and verifies its distribution SHA-256. Font setup fetches official Satoshi assets and checks every pinned hash; retain [the licence](docs/SATOSHI_LICENSE.txt). Font binaries and model weights are not committed.
+The wrapper pins Gradle and verifies its distribution SHA-256. The interface uses the system font.
 
 Data is stored under `%LOCALAPPDATA%\Alter\alter-desktop.db`. It is private local data, without backup/sync yet. Do not uninstall/delete this directory to update the application. Start a second copy only after closing the first; concurrent editors are not supported yet. Linux development uses `~/.local/share/Alter`; `-Dalter.dataDir=...` overrides the data directory for disposable tests.
 
@@ -51,4 +52,4 @@ source /workspace/setup/activate.sh
 
 The Linux cloud prepares compilation/tests and an internal display for UI smoke checks. It cannot validate Windows native inference, installer signing or physical microphone behavior. See [PROJECT.md](PROJECT.md) for the framework decision and [PLANS.md](PLANS.md) for the remaining increments.
 
-In Settings → AI models, **Find installed models** checks running Ollama and LM Studio servers on this PC. Select a listed chat-capable model to send messages to that runtime. For explicit cloud chat, enter an OpenAI key and Chat Completions model ID and choose **Use OpenAI for chat**. The key lasts for this session. OpenAI receives the instructions and recent conversation only when you send with that provider selected. The chat composer’s plus menu also opens a local capture editor for a typed or dictated draft.
+In Settings → AI models → Other providers & runtimes, **Find installed models** checks running Ollama and LM Studio servers on this PC. Select a listed chat-capable model to send messages to that runtime. For explicit cloud chat, enter an OpenAI key and Chat Completions model ID and choose **Use OpenAI for chat**. The key lasts for this session unless you save it in Windows Credential Manager. OpenAI receives the instructions and recent conversation only when you send with that provider selected. The chat composer’s plus menu also opens a local capture editor for a typed or dictated draft.

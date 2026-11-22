@@ -13,6 +13,7 @@ dependencies {
     implementation("org.json:json:20250517")
     testImplementation(kotlin("test-junit"))
 }
+tasks.processResources { exclude("fonts/**") }
 tasks.test { systemProperty("java.awt.headless", "true") }
 tasks.withType<JavaExec>().configureEach {
     if (name == "run") System.getenv("ALTER_DATA_DIR")?.let { systemProperty("alter.dataDir", it) }
@@ -24,7 +25,7 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             appResourcesRootDir.set(project.layout.buildDirectory.dir("package-resources"))
             packageName = "Alter"
-            packageVersion = "0.2.0"
+            packageVersion = "0.2.1"
             modules("jdk.httpserver", "jdk.crypto.ec", "java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
             windows {
                 iconFile.set(project.file("packaging/alter.ico"))

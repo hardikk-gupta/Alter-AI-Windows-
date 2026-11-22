@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.1 desktop preview
+
+Moved project and command controls into Settings and placed Plugins in the chat sidebar. Windows uses its system UI font. The full-height sidebar shares one edge with its icon rail. Plugin setup and permissions open on Connect.
+
 ## 0.2.0 desktop preview
 
 Added project skills, a command palette, confirmed model function calls, Figma Desktop MCP selection metadata, separate Spotify/Calendar/Drive grants, a Windows hold-to-dictate shortcut and opt-in Windows Credential Manager storage.

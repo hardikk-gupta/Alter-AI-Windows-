@@ -13,7 +13,20 @@ internal val repoPattern = Regex("[a-zA-Z0-9][a-zA-Z0-9-]{0,38}/[a-zA-Z0-9_.-]{1
 
 internal fun validRepo(repo: String) = repoPattern.matches(repo) && repo.substringAfter('/') !in setOf(".", "..")
 
+internal class RepoGrant(val repository: String, val token: String)
+
 internal data class DesktopAction(val name: String, val argument: String = "") {
+    val command get() = when (name) {
+        "repo_brief" -> "/repo checks"
+        "repo_issues" -> "/repo issues"
+        "open_repo" -> "/repo open"
+        "open_spotify" -> "/spotify"
+        "figma_read" -> "/figma selection"
+        "calendar_events" -> "/calendar"
+        "drive_files" -> "/drive"
+        "play_spotify" -> "Play $argument on Spotify"
+        else -> error("Unknown command.")
+    }
     val plugin get() = when (name) {
         "calendar_events" -> ServicePlugin.Calendar
         "drive_files" -> ServicePlugin.Drive
@@ -32,7 +45,7 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
         else -> error("Unknown action.")
     }
 
-    suspend fun execute(figmaEnabled: Boolean = false, grant: PluginGrant? = null): String = runInterruptible(Dispatchers.IO) {
+    suspend fun execute(figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null): String = runInterruptible(Dispatchers.IO) {
         plugin?.let { return@runInterruptible ServiceTools.execute(it, grant, argument) }
         when (name) {
             "open_spotify" -> {
@@ -52,9 +65,10 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
                 } else {
                     val endpoint = if (name == "repo_issues") "issues?state=open&per_page=30" else "actions/runs?per_page=5"
                     val request = HttpRequest.newBuilder(URI("https://api.github.com/repos/$argument/$endpoint"))
-                        .timeout(Duration.ofSeconds(20)).header("Accept", "application/vnd.github+json").build()
-                    val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-                    check(response.statusCode() == 200) { "GitHub returned HTTP ${response.statusCode()}. Check public repository access and rate limits." }
+                        .timeout(Duration.ofSeconds(20)).header("Accept", "application/vnd.github+json")
+                    if (repositoryGrant?.repository == argument) request.header("Authorization", "Bearer ${repositoryGrant.token}")
+                    val response = client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+                    check(response.statusCode() == 200) { "GitHub returned HTTP ${response.statusCode()}. Check repository access and rate limits." }
                     if (name == "repo_issues") {
                         val entries = org.json.JSONArray(response.body())
                         val issues = (0 until entries.length()).map { entries.getJSONObject(it) }.filterNot { it.has("pull_request") }.take(10)
@@ -95,7 +109,7 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
     }
 }
 
-internal data class RunEntry(val id: Long, val project: Long, val action: DesktopAction, val state: String, val result: String)
+internal data class RunEntry(val id: Long, val project: Long, val action: DesktopAction, val state: String, val result: String, val thread: Long?, val started: Long)
 internal data class BriefSchedule(val project: Long, val repo: String, val time: LocalTime, val zone: ZoneId, val next: Instant, val enabled: Boolean)
 
 internal fun nextWeekday(after: Instant, time: LocalTime, zone: ZoneId): Instant {
@@ -107,9 +121,9 @@ internal fun nextWeekday(after: Instant, time: LocalTime, zone: ZoneId): Instant
     }
 }
 
-internal suspend fun Store.executeRun(id: Long, action: DesktopAction, figmaEnabled: Boolean = false, grant: PluginGrant? = null): String {
+internal suspend fun Store.executeRun(id: Long, action: DesktopAction, figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null): String {
     return try {
-        val result = action.execute(figmaEnabled, grant)
+        val result = action.execute(figmaEnabled, grant, repositoryGrant)
         finishRun(id, "completed", result)
         result
     } catch (cancelled: CancellationException) {
