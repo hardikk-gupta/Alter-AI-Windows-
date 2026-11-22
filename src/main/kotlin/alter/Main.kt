@@ -144,10 +144,6 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
     var threads by remember { mutableStateOf(store.threads()) }
     var threadId by remember { mutableStateOf(threads.firstOrNull { !it.archived }?.id) }
     var messages by remember { mutableStateOf(threadId?.let(store::messages).orEmpty()) }
-    var historyQuery by remember { mutableStateOf("") }
-    val filteredThreads = remember(threads, messages, historyQuery) {
-        if (historyQuery.isBlank()) threads else store.threads(historyQuery)
-    }
     val drafts = remember { mutableMapOf<Long?, String>() }
     var deleteChat by remember { mutableStateOf<ChatThread?>(null) }
     var search by remember { mutableStateOf("") }
@@ -482,7 +478,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     WorkspaceSidebar(if (chatPlugins) null else settings, destination == Destination.Chat, chatPlugins, {
                         requestedPlugin = null; pluginsFromChat = true; settings = "Plugins"; if (compact) sidebar = false
                     }, threadId.takeIf { settings == null && destination == Destination.Chat },
-                        filteredThreads, historyQuery, { historyQuery = it },
+                        threads,
                         { openThread(null); if (compact) sidebar = false },
                         { openThread(it); if (compact) sidebar = false }, canSwitch,
                         { pluginsFromChat = false; settings = it; if (compact) sidebar = false },
@@ -548,6 +544,23 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                             "Workspace" -> {
                                 Text("Project", style = MaterialTheme.typography.titleMedium)
                                 ProjectPicker(project, catalog, canSwitch && prompt.isBlank(), selectProject)
+                                if (threads.isNotEmpty()) {
+                                    var query by remember { mutableStateOf<String?>(null) }
+                                    TextButton(enabled = canSwitch, onClick = { query = if (query == null) "" else null }) { Text("Find a chat") }
+                                    query?.let { text ->
+                                        OutlinedTextField(text, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
+                                            label = { Text("Search chats") })
+                                        if (text.isNotBlank()) {
+                                            val matches = remember(text, threads) { store.threads(text) }
+                                            if (matches.isEmpty()) Text("No matching chats")
+                                            else LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+                                                items(matches, key = { it.id }) { thread ->
+                                                    TextButton(enabled = canSwitch, onClick = { openThread(thread.id) }) { Text(thread.title) }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 var toolSuggestions by remember { mutableStateOf(store.setting("modelTools").toBoolean()) }
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(toolSuggestions, { toolSuggestions = it; store.setting("modelTools", it.toString(), true) })

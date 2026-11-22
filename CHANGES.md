@@ -2,6 +2,8 @@
 
 ## 0.2.3 desktop preview
 
+Chat history search lives in Settings → Workspace.
+
 Windows installs the application under `%LOCALAPPDATA%\Programs\Alter`. Upgrading a legacy installation protects the existing workspace, downloaded models and project files under `%LOCALAPPDATA%\Alter`. Windows CI checks both Qwen sizes and transcribes a synthetic spoken command with Whisper Tiny and Base.
 
 ## 0.2.2 desktop preview

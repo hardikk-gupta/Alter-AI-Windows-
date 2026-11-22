@@ -5,14 +5,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.*
@@ -84,7 +82,7 @@ private fun SectionHeader(name: String, expanded: Boolean, toggle: () -> Unit) {
 
 @Composable
 internal fun WorkspaceSidebar(settings: String?, chat: Boolean, pluginsSelected: Boolean, openPlugins: () -> Unit, active: Long?, threads: List<ChatThread>,
-    search: String, setSearch: (String) -> Unit, newChat: () -> Unit, openThread: (Long) -> Unit,
+    newChat: () -> Unit, openThread: (Long) -> Unit,
     canSwitch: Boolean, openSettings: (String) -> Unit, update: (ChatThread) -> Unit,
     categories: Map<Destination, Int>, openCategory: (Destination) -> Unit, modelCount: Int) {
     val c = MaterialTheme.colorScheme
@@ -95,22 +93,11 @@ internal fun WorkspaceSidebar(settings: String?, chat: Boolean, pluginsSelected:
             Text("Settings", Modifier.padding(10.dp), fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Column(Modifier.verticalScroll(rememberScrollState())) { settingsPages.forEach { WorkspaceRow(it, selected = settings == it) { openSettings(it) } } }
         } else {
-            if (threads.isNotEmpty() || search.isNotBlank()) BasicTextField(search, setSearch, Modifier.fillMaxWidth().padding(6.dp).semantics { contentDescription = "Search chats" },
-                singleLine = true, textStyle = MaterialTheme.typography.bodyMedium.copy(color = c.onSurface),
-                cursorBrush = SolidColor(c.primary), decorationBox = { inner ->
-                    Row(Modifier.height(29.dp), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(AlterIcons.Search, null, Modifier.size(15.dp), c.onSurface.copy(alpha = .65f))
-                        Box(Modifier.weight(1f)) { if (search.isEmpty()) Text("Search chats…", fontSize = 13.sp, color = c.onSurface.copy(alpha = .66f)); inner() }
-                    }
-                })
             WorkspaceRow("New chat", AlterIcons.Edit, enabled = canSwitch, onClick = newChat)
             if (chat) WorkspaceRow("Plugins", AlterIcons.Grid, selected = pluginsSelected, onClick = openPlugins)
             LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
-                if (search.isNotBlank() && threads.isEmpty()) item { Text("No matching chats", Modifier.padding(8.dp), fontSize = 13.sp) }
                 for (name in listOf("Favorites", "Chats", "Library", "Archive")) {
-                    val open = expanded[name] == true || search.isNotBlank()
-                    if (name == "Library" && search.isNotBlank()) continue
+                    val open = expanded[name] == true
                     val group = when (name) {
                         "Favorites" -> threads.filter { it.favorite && !it.archived }
                         "Chats" -> threads.filter { !it.favorite && !it.archived }
