@@ -777,7 +777,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("Alter for Windows · 0.2.2", fontWeight = FontWeight.Bold)
+                                    Text("Alter for Windows · 0.2.3", fontWeight = FontWeight.Bold)
                                     Text("Install a newer MSI to upgrade. Your notes and downloaded models stay under your Windows user profile.")
                                     TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(
                                         "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("View latest build ↗") }

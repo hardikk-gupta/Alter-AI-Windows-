@@ -49,7 +49,7 @@ internal class FigmaMcp private constructor(private val endpoint: URI, private v
 
     fun readSelection(testOnly: Boolean, arguments: JSONObject = JSONObject()): String {
         val init = exchange("initialize", JSONObject().put("protocolVersion", version).put("capabilities", JSONObject())
-            .put("clientInfo", JSONObject().put("name", "Alter").put("version", "0.2.2")))
+            .put("clientInfo", JSONObject().put("name", "Alter").put("version", "0.2.3")))
         version = init.getString("protocolVersion")
         exchange("notifications/initialized", null, notification = true)
         try {

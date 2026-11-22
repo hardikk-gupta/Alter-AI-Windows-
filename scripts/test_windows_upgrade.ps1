@@ -81,3 +81,11 @@ if ($previousInfo) {
     if ([IO.File]::ReadAllText($weight) -ne 'Synthetic model fixture') { throw 'Model directory did not survive upgrade.' }
     Write-Host "Verified upgrade from $($previousInfo.ProductVersion) to $($currentInfo.ProductVersion) with existing notes."
 } else { Write-Host 'Verified a fresh installation. No older main artifact was available for upgrade testing.' }
+
+# The packaged inference test uses the build image, so the disposable installation
+# can be removed here to check that ordinary uninstall no longer touches user data.
+$remove = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/x', $currentInfo.ProductCode, '/qn', '/norestart')
+if ($remove.ExitCode -notin @(0,3010) -or $msi.ProductState($currentInfo.ProductCode) -eq 5) { throw 'Alter did not uninstall.' }
+if ($previousInfo -and [IO.File]::ReadAllText($weight) -ne 'Synthetic model fixture') { throw 'Model directory did not survive uninstall.' }
+if (-not (Test-Path (Join-Path $env:LOCALAPPDATA 'Alter/alter-desktop.db') -PathType Leaf)) { throw 'Uninstall removed the workspace.' }
+Write-Host 'Verified uninstall preserves the workspace.'

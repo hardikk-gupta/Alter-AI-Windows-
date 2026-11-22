@@ -57,7 +57,10 @@ if (System.getProperty("os.name").startsWith("Windows")) {
                 "-Version", packageVersion.get(), "-AppImage", image.get().asFile.absolutePath,
                 "-OutputDir", destinationDir.get().asFile.absolutePath, "-UpgradeId", winUpgradeUuid.get())
             wixToolsetDir.orNull?.let { args.addAll(listOf("-WixDir", it.asFile.absolutePath)) }
-            providers.exec { commandLine(args) }.standardOutput.asText.get().also(::println)
+            val result = providers.exec { commandLine(args); isIgnoreExitValue = true }
+            print(result.standardOutput.asText.get())
+            print(result.standardError.asText.get())
+            result.result.get().assertNormalExitValue()
         }
     }
 }
