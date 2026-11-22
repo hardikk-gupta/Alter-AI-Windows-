@@ -11,3 +11,5 @@ Windows CI now packages an unsigned per-user MSI with a Start menu entry and sta
 The desktop dashboard now follows the two screenshot references and supports searchable multi-session chat, Favorites and Archive. The HTML gallery shows native captures. Continue refining from real saved data and Windows DPI/input acceptance. The 0.1.2 portable CPU runtime still needs a real Windows retry with the user's Qwen model and runtime log if it fails.
 
 Target hardware: low-end CPU PCs as well as the user's Ryzen 7000 HS, RTX 4050, 16 GB RAM system. The reported “4 GB virtual” is not established dedicated GPU memory. Detect/confirm available VRAM before selecting GPU layers. No Windows speed/quality benchmark has run in Linux.
+
+The [desktop product goal](docs/DESKTOP_PRODUCT_GOAL.md) defines the full Windows experience, current implementation, integration dependencies and acceptance checks.

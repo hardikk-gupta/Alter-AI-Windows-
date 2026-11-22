@@ -44,3 +44,5 @@ source /workspace/setup/activate.sh
 ```
 
 The Linux cloud prepares compilation/tests and an internal display for UI smoke checks. It cannot validate Windows native inference, installer signing or physical microphone behavior. See [PROJECT.md](PROJECT.md) for the framework decision and [PLANS.md](PLANS.md) for the remaining increments.
+
+In Settings → AI models, **Find installed models** checks running Ollama and LM Studio servers on this PC. Select a listed chat-capable model to send messages to that runtime. For explicit cloud chat, enter an OpenAI key and Chat Completions model ID and choose **Use OpenAI for chat**. The key lasts for this session. OpenAI receives the instructions and recent conversation only when you send with that provider selected. The chat composer’s plus menu also opens a local capture editor for a typed or dictated draft.

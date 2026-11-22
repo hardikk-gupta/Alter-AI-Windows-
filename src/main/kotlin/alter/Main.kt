@@ -128,6 +128,10 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     val installed = remember(installedVersion) { models.associateWith { isRegularFile(modelPath(it)) && Files.size(modelPath(it)) == it.bytes } }
     var confirmDownload by remember { mutableStateOf<ModelSpec?>(null) }
     var activeModel by remember { mutableStateOf<String?>(null) }
+    var runtimeModel by remember { mutableStateOf<RuntimeModel?>(null) }
+    var detectedModels by remember { mutableStateOf(emptyList<RuntimeModel>()) }
+    var cloud by remember { mutableStateOf<OpenAiSession?>(null) }
+    val modelLabel = cloud?.let { "OpenAI · ${it.model}" } ?: runtimeModel?.label ?: models.find { it.id == activeModel }?.title?.substringBefore(" ·")
     var voiceModel by remember { mutableStateOf(store.setting("voiceModel")) }
     var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
     val pond = remember { ShoalSimulation() }
@@ -160,6 +164,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     }
     fun activateModel(spec: ModelSpec) {
         if (modelWork != null || generation != null || speaking) return
+        cloud = null
+        runtimeModel = null
         modelWork = scope.launch {
             modelStatus = "Loading ${spec.title.substringBefore(" ·")}…"
             modelStartupFailed = false
@@ -167,6 +173,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                 val custom = customRuntime.takeIf(String::isNotBlank)?.let(Path::of)
                 native.start(spec, store.setting("modelPort", "8080").toInt(), custom, if (custom == null) 0 else 99)
                 store.setting("textModel", spec.id, true)
+                cloud = null
+                runtimeModel = null
                 activeModel = spec.id
                 error = null
                 modelStatus = "${spec.title.substringBefore(" ·")} is ready."
@@ -196,7 +204,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     }
     fun send() {
         if (prompt.isBlank() || generation != null || speaking || modelWork != null) return
-        if (!native.running) { activeModel = null; settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
+        val external = runtimeModel
+        val selectedCloud = cloud
+        if (selectedCloud == null && external == null && !native.running) { activeModel = null; settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
         val text = prompt.trim()
         attempt {
             val id = store.addMessage(threadId, "user", text)
@@ -208,10 +218,10 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             prompt = ""
             generation = scope.launch {
                 try {
-                    val reply = LocalChat(store.setting("modelPort", "8080").toInt()).reply(history)
+                    val reply = selectedCloud?.reply(history) ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt()).reply(history, external?.name)
                     store.addMessage(id, "assistant", reply); messages = store.messages(id); threads = store.threads()
                 } catch (e: CancellationException) { throw e }
-                catch (e: Exception) { error = "Local model unavailable. ${e.message ?: "Check Model settings."}" }
+                catch (e: Exception) { error = e.message ?: "Model unavailable. Check model settings." }
                 finally { generation = null }
             }
         }
@@ -250,9 +260,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                         { destination = it; settings = null; search = ""; if (compact) sidebar = false }, installed.count { it.value })
                 }
                 val detailsContent = @Composable {
-                    WorkspaceDetails(models.find { it.id == activeModel }?.title?.substringBefore(" ·"),
+                    WorkspaceDetails(modelLabel,
                         models.find { it.id == voiceModel }?.title?.substringBefore(" ·"),
-                        if (customRuntime.isBlank()) "Included CPU runtime" else "NVIDIA runtime selected",
+                        cloud?.let { "OpenAI API" } ?: runtimeModel?.runtime?.title ?: if (customRuntime.isBlank()) "Included CPU runtime" else "NVIDIA runtime selected",
                         { settings = "AI models"; if (!wide) details = false })
                 }
                 Column(Modifier.fillMaxSize()) {
@@ -330,14 +340,14 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 }
                             }
                             "AI models" -> {
-                                Text("Local models", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                                Text("AI models", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text("Download a model once, then chat or dictate offline. Nothing starts until you choose it.",
                                     color = colors.onSurface.copy(alpha = .66f))
                                 Text("This PC: about ${hardware.ramBytes / (1024 * 1024 * 1024)} GB RAM · ${hardware.processors} CPU threads. Suggested text model: ${models.first { it.id == hardware.suggestedTextId }.title}.",
                                     style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .65f))
                                 if (modelStatus.isNotBlank()) Text(modelStatus, color = AlterYellow)
 
-                                Text("Inference: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
+                                Text("Bundled model runtime: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     TextButton(onClick = { attempt {
                                         val chooser = javax.swing.JFileChooser()
@@ -354,6 +364,55 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 }
                                 Text("The included CPU engine works on compatible PCs. For RTX 4050, select a compatible CUDA llama-server.exe with its DLLs beside it.",
                                     style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .55f))
+                                var keyInput by remember { mutableStateOf("") }
+                                var cloudModel by remember { mutableStateOf("gpt-4.1-mini") }
+                                Text("OpenAI API", style = MaterialTheme.typography.titleMedium)
+                                Text("When selected, sending a message sends Alter’s instructions and up to 20 messages from the open conversation to OpenAI. Your key stays in memory for this session.", style = MaterialTheme.typography.bodySmall)
+                                OutlinedTextField(keyInput, { keyInput = it.trim() }, singleLine = true, label = { Text("OpenAI API key") },
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
+                                OutlinedTextField(cloudModel, { cloudModel = it.trim() }, singleLine = true, label = { Text("Chat Completions model ID") })
+                                TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = {
+                                    native.stop()
+                                    activeModel = null
+                                    runtimeModel = null
+                                    cloud = OpenAiSession(keyInput, cloudModel)
+                                    keyInput = ""
+                                    modelStatus = "OpenAI selected for chat."
+                                }) { Text("Use OpenAI for chat") }
+                                if (cloud != null) TextButton(enabled = canSwitch, onClick = {
+                                    cloud = null
+                                    keyInput = ""
+                                    modelStatus = "OpenAI disconnected."
+                                }) { Text("Disconnect OpenAI") }
+                                Text("Other runtimes on this PC", style = MaterialTheme.typography.titleMedium)
+                                Text("Start Ollama or the LM Studio local server, then check for models.", style = MaterialTheme.typography.bodySmall)
+                                TextButton(enabled = canSwitch, onClick = {
+                                    modelWork = scope.launch {
+                                        try {
+                                            val found = mutableListOf<RuntimeModel>()
+                                            val statuses = mutableListOf<String>()
+                                            for (runtime in DesktopRuntime.entries) {
+                                                try {
+                                                    val names = LocalChat(runtime.port).installedModels(runtime)
+                                                    found += names.map { RuntimeModel(runtime, it) }
+                                                    statuses += "${runtime.title}: ${names.size} listed"
+                                                } catch (e: CancellationException) { throw e }
+                                                catch (e: Exception) { statuses += "${runtime.title}: unavailable on port ${runtime.port}" }
+                                            }
+                                            detectedModels = found
+                                            modelStatus = statuses.joinToString(" · ")
+                                        } finally { modelWork = null }
+                                    }
+                                }) { Text("Find installed models") }
+                                detectedModels.forEach { model ->
+                                    TextButton(enabled = canSwitch && runtimeModel != model, onClick = {
+                                        native.stop()
+                                        activeModel = null
+                                        cloud = null
+                                        runtimeModel = model
+                                        modelStatus = "Selected ${model.label}."
+                                    }) { Text(model.label) }
+                                }
                                 models.forEach { spec ->
                                     if (spec.id == "qwen-small" || spec.id == "whisper-tiny") {
                                         Spacer(Modifier.height(12.dp))
@@ -416,10 +475,12 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     } else if (destination == Destination.Chat) {
                         key(threadId) {
                             ChatPane(messages, prompt, { prompt = it.take(16000) },
-                                models.find { it.id == activeModel }?.title?.substringBefore(" ·"), installed,
+                                modelLabel, installed,
                                 modelWork != null, speaking, generation != null,
                                 if (speaking || modelWork != null) modelStatus else "",
-                                { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, {
+                                { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, { type ->
+                                    draft = AlterCard(type = type, rawInput = if (type == "note") "" else prompt, processedContent = prompt)
+                                }, {
                                 if (!recorder.recording) attempt {
                                     val chosen = models.firstOrNull { it.id == store.setting("voiceModel") }
                                         ?: error("Download and select a speech model in AI models first.")

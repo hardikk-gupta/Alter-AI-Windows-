@@ -125,12 +125,30 @@ class DesktopTest {
         }
         server.start()
         try {
-            val answer = LocalChat(server.address.port).reply(listOf("user" to "Hello"))
+            val answer = LocalChat(server.address.port).reply(listOf("user" to "Hello"), "chosen-model")
+            assertEquals("chosen-model", request!!.getString("model"))
             assertEquals("Hello Hardikk", answer)
             val messages = request!!.getJSONArray("messages")
             assertTrue(messages.getJSONObject(0).getString("content").contains("You are Alter"))
             assertEquals("Hello", messages.getJSONObject(1).getString("content"))
             assertFalse(request!!.getBoolean("stream"))
+        } finally { server.stop(0) }
+    }
+
+    @Test fun externalCatalogsKeepLocalModelNamesSeparate() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val catalogs = mapOf("/api/tags" to """{"models":[{"name":"qwen"},{"name":"other:cloud"},{"name":"remote","remote_host":"elsewhere"}]}""",
+            "/v1/models" to """{"data":[{"id":"lm-model"}]}""")
+        catalogs.forEach { (path, json) -> server.createContext(path) { exchange ->
+            val bytes = json.toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        } }
+        server.start()
+        try {
+            val client = LocalChat(server.address.port)
+            assertEquals(listOf("qwen"), client.installedModels(DesktopRuntime.Ollama))
+            assertEquals(listOf("lm-model"), client.installedModels(DesktopRuntime.LmStudio))
         } finally { server.stop(0) }
     }
 

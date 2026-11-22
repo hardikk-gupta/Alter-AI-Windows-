@@ -51,3 +51,7 @@ The first full Windows Qwen check reproduced an engine exit after file verificat
 - Pinned Gradle 8.14.3 and its wrapper checksum; verified JDK 21.0.13 and official Satoshi hashes in the cloud setup. Added Linux/Windows source-check CI and Windows application-image task. No installer has been published.
 - Validation in Linux cloud: `scripts/setup_cloud.sh` succeeded; `./gradlew test` passed **6 tests, 0 failures/skips**. Compose window started under an internal Xorg display and produced `build/screenshots/desktop.png`; visually checked Home, navigation and shared river. The run used Skiko's fallback rendering API because this virtual display has no GL context. Native Windows build/run, model throughput, device DPI/keyboard/mouse, microphone and installer tests are unrun.
 - Android notification-only GitHub linkage and complete Android↔Windows backup remain pending. No Android source changes or personal data were added.
+
+## Desktop agent foundation
+
+Added the full product map, external Ollama/LM Studio model discovery, explicitly selected session-only OpenAI chat, and reviewed local capture actions using the Android skills catalog. Discovery and model routing are covered by loopback fixture tests.
