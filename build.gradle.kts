@@ -24,8 +24,8 @@ compose.desktop {
             targetFormats(TargetFormat.Msi, TargetFormat.Exe)
             appResourcesRootDir.set(project.layout.buildDirectory.dir("package-resources"))
             packageName = "Alter"
-            packageVersion = "0.1.4"
-            modules("java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
+            packageVersion = "0.2.0"
+            modules("jdk.httpserver", "jdk.crypto.ec", "java.sql", "java.net.http", "jdk.unsupported", "jdk.management")
             windows {
                 iconFile.set(project.file("packaging/alter.ico"))
                 menuGroup = "Alter"

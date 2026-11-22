@@ -17,6 +17,12 @@ A Windows user can speak or type a request, choose where inference happens, use 
 | Scheduling | Upcoming saves commitments. Add explicit scheduled runs with a timezone, recurrence, pause, next run, missed-run policy, and idempotent execution. Background mode should release unused models. | A weekday project brief runs once across restart. Show what happens on wake when the PC sleeps through a run. |
 | Discovery and reuse | Add a command palette based on enabled capabilities, connection tests, and Run again / Save as skill from Activity. | A user can tell what is available before making a request and reuse a successful run. |
 
+## Preview branch status
+
+The project picker opens separate local databases for each project. Personal retains the existing database. Workspace instructions accompany model requests. Settings → AI models can load a user-selected GGUF with the bundled engine. Settings → Actions & schedules supports reviewed “open Spotify”, “open my repo” and “review my repo” commands, per-project Activity and one weekday public-repository workflow brief per project. A missed brief runs once on resume. Tray mode is opt-in.
+
+Google desktop PKCE and GitHub device authorization exchange their credentials with Firebase. Unconfigured providers show “setup required”. To test, enable both providers in the same Firebase project, register a Google desktop client and enable Device Flow for the GitHub OAuth app. Supply ALTER_FIREBASE_WEB_API_KEY, ALTER_GOOGLE_DESKTOP_CLIENT_ID, ALTER_GOOGLE_DESKTOP_CLIENT_SECRET and ALTER_GITHUB_CLIENT_ID in the app process environment. GitHub's server-side client secret belongs in Firebase. Live sign-in, linking and revocation require registered clients and test accounts.
+
 ## Integration decisions before shipping
 
 Use the system browser for sign-in. Confirm the identity project and provision Google and GitHub client registrations and callbacks. Keep provider secrets on the owning service. Store refresh tokens or optional saved API keys with Windows credential protection. Exercise account linking, revocation and cancellation using test accounts.

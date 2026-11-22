@@ -12,6 +12,12 @@ If a downloaded Qwen model fails to start, install the newest MSI, open Settings
 
 If the Windows job has not passed or no artifact appears, use the source steps below while the packaging failure is fixed. The [source ZIP](https://github.com/hardikk-gupta/Alter-AI-Windows-/archive/refs/heads/main.zip) contains code, not a runnable app.
 
+## Try the desktop preview
+
+Choose **Personal → New project** in the toolbar. Each project has its own chats, notes, settings and instructions. In **Settings → Actions & schedules**, save a public GitHub repository as `owner/name`. In chat, type or dictate **review my repo**, then confirm to fetch the last five workflow runs. This command also works as a guest without a text model. Schedule a weekday brief on the same settings page and enable the tray option to keep it running with the window closed.
+
+**Settings → AI models** supports downloaded Qwen models, local GGUF files, Ollama, LM Studio and a session-only OpenAI key. Google and GitHub sign-in require [provider registration](docs/DESKTOP_PRODUCT_GOAL.md). Preview installers are attached to the successful PR workflow run.
+
 ## Run on Windows
 
 Install a **JDK 21** (not just a JRE) and Python 3. From PowerShell in this checkout:

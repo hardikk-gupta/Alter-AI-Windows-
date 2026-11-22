@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.0 desktop preview
+
+Project workspaces isolate chat, notes and settings. Settings offers local GGUF loading, account setup status, activity history and weekday GitHub workflow briefs. The chat composer accepts reviewed repository and Spotify launch commands. The optional tray keeps scheduled briefs running while the window is closed.
+
 Reduced the rail and Alter mark, matched the navigation surface to Workspace details, and added a rail collapse button with a persistent toolbar restore control. Desktop icons use the Android rounded Hugeicons set with a chat bubble for conversations.
 
 ## Desktop palette correction

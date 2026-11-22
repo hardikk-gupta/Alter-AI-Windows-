@@ -4,6 +4,7 @@ import com.example.data.AlterCard
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
+import java.time.*
 
 fun defaultDataDirectory(): Path = System.getProperty("alter.dataDir")?.let(Path::of)
     ?: System.getenv("LOCALAPPDATA")?.let { Path.of(it, "Alter") }
@@ -11,7 +12,7 @@ fun defaultDataDirectory(): Path = System.getProperty("alter.dataDir")?.let(Path
 
 data class ChatThread(val id: Long, val title: String, val favorite: Boolean, val archived: Boolean)
 
-class Store(directory: Path) : AutoCloseable {
+class Store(private val directory: Path) : AutoCloseable {
     private val db = run {
         Files.createDirectories(directory)
         DriverManager.getConnection("jdbc:sqlite:${directory.resolve("alter-desktop.db")}")
@@ -32,6 +33,12 @@ class Store(directory: Path) : AutoCloseable {
                 timestamp INTEGER NOT NULL)""")
             s.execute("""CREATE TABLE IF NOT EXISTS thread_options (
                 threadId INTEGER PRIMARY KEY, favorite INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)""")
+            s.execute("""CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, instructions TEXT NOT NULL)""")
+            s.execute("""CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, project INTEGER NOT NULL,
+                action TEXT NOT NULL, argument TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '')""")
+            s.execute("""CREATE TABLE IF NOT EXISTS schedules (project INTEGER PRIMARY KEY, repo TEXT NOT NULL, time TEXT NOT NULL,
+                zone TEXT NOT NULL, next INTEGER NOT NULL, enabled INTEGER NOT NULL)""")
             if (version < 2) {
                 db.autoCommit = false
                 try {
@@ -46,6 +53,82 @@ class Store(directory: Path) : AutoCloseable {
             }
         }
     }
+    @Synchronized fun projects(): List<Project> = db.createStatement().use { statement ->
+        statement.executeQuery("SELECT id,name,instructions FROM projects ORDER BY name COLLATE NOCASE").use { rows ->
+            buildList { while (rows.next()) add(Project(rows.getLong(1), rows.getString(2), rows.getString(3))) }
+        }
+    }
+
+    @Synchronized fun createProject(name: String, instructions: String): Project {
+        val title = name.trim()
+        require(title.length in 1..80 && instructions.length <= 2000) { "Check the project name and instructions." }
+        require(!title.equals(personalWorkspace.name, true)) { "Choose another name for this project." }
+        return db.prepareStatement("INSERT INTO projects(name,instructions) VALUES(?,?) ON CONFLICT DO NOTHING RETURNING id").use { statement ->
+            statement.setString(1, title); statement.setString(2, instructions)
+            statement.executeQuery().use { rows ->
+                require(rows.next()) { "A project with this name already exists." }
+                Project(rows.getLong(1), title, instructions)
+            }
+        }
+    }
+
+    fun openProject(project: Project): Store {
+        require(project.id > 0 && projects().any { it.id == project.id })
+        return Store(directory.resolve("projects").resolve(project.id.toString()))
+    }
+
+    @Synchronized internal fun beginRun(project: Long, action: DesktopAction): Long = db.prepareStatement(
+        "INSERT INTO activity(project,action,argument,state) VALUES(?,?,?,'running') RETURNING id"
+    ).use { s ->
+        s.setLong(1, project); s.setString(2, action.name); s.setString(3, action.argument)
+        s.executeQuery().use { it.next(); it.getLong(1) }
+    }
+
+    @Synchronized internal fun finishRun(id: Long, state: String, result: String) {
+        db.prepareStatement("UPDATE activity SET state=?,result=? WHERE id=? AND state='running'").use { s ->
+            s.setString(1, state); s.setString(2, result); s.setLong(3, id); s.executeUpdate()
+        }
+    }
+
+    @Synchronized internal fun activity(project: Long): List<RunEntry> = db.prepareStatement(
+        "SELECT * FROM activity WHERE project=? ORDER BY id DESC LIMIT 50"
+    ).use { s ->
+        s.setLong(1, project)
+        s.executeQuery().use { r -> buildList { while (r.next()) add(RunEntry(r.getLong("id"), project,
+            DesktopAction(r.getString("action"), r.getString("argument")), r.getString("state"), r.getString("result"))) } }
+    }
+
+    @Synchronized internal fun saveSchedule(schedule: BriefSchedule) {
+        require(validRepo(schedule.repo))
+        db.prepareStatement("INSERT OR REPLACE INTO schedules VALUES(?,?,?,?,?,?)").use { s ->
+            s.setLong(1,schedule.project); s.setString(2,schedule.repo); s.setString(3,schedule.time.toString())
+            s.setString(4,schedule.zone.id); s.setLong(5,schedule.next.toEpochMilli()); s.setBoolean(6,schedule.enabled); s.executeUpdate()
+        }
+    }
+
+    @Synchronized internal fun schedules(): List<BriefSchedule> = db.createStatement().use { s ->
+        s.executeQuery("SELECT * FROM schedules").use { r -> buildList {
+            while(r.next()) add(BriefSchedule(r.getLong("project"),r.getString("repo"),LocalTime.parse(r.getString("time")),
+                ZoneId.of(r.getString("zone")),Instant.ofEpochMilli(r.getLong("next")),r.getBoolean("enabled")))
+        } }
+    }
+
+    @Synchronized internal fun claimSchedule(schedule: BriefSchedule, now: Instant): Long? {
+        if (!schedule.enabled || schedule.next > now) return null
+        db.autoCommit = false
+        try {
+            val count = db.prepareStatement("UPDATE schedules SET next=? WHERE project=? AND next=? AND enabled=1 AND repo=? AND zone=? AND time=?").use { s ->
+                s.setLong(1,nextWeekday(now,schedule.time,schedule.zone).toEpochMilli()); s.setLong(2,schedule.project)
+                s.setLong(3,schedule.next.toEpochMilli()); s.setString(4,schedule.repo); s.setString(5,schedule.zone.id)
+                s.setString(6,schedule.time.toString()); s.executeUpdate()
+            }
+            val run = if (count == 1) beginRun(schedule.project, DesktopAction("repo_brief",schedule.repo)) else null
+            db.commit()
+            return run
+        } catch (e: Exception) { db.rollback(); throw e }
+        finally { db.autoCommit = true }
+    }
+
     @Synchronized fun cards(): List<AlterCard> = db.createStatement().use { s ->
         s.executeQuery("SELECT * FROM cards WHERE isDeleted=0 ORDER BY timestamp DESC, id DESC").use { r ->
             buildList { while (r.next()) add(AlterCard(r.getLong("id"), r.getString("type"),

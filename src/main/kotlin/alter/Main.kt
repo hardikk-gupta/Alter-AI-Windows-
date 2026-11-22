@@ -58,8 +58,28 @@ fun main(args: Array<String>) {
         Files.createDirectories(cache)
         System.setProperty("skiko.data.path", cache.toString())
     }
-    application {
-        Window(onCloseRequest = { store.close(); exitApplication() }, title = "Alter",
+    try {
+        application(exitProcessOnExit = false) {
+        var visible by remember { mutableStateOf(true) }
+        var keepInTray by remember { mutableStateOf(store.setting("keepInTray").toBoolean()) }
+        val trayAvailable = java.awt.SystemTray.isSupported()
+        if (trayAvailable && keepInTray) Tray(painterResource("alter-window.png"), tooltip = "Alter",
+            onAction = { visible = true }, menu = {
+                Item("Open Alter", onClick = { visible = true })
+                Item("Quit Alter", onClick = ::exitApplication)
+            })
+        LaunchedEffect(store) {
+            while (isActive) {
+                for (schedule in store.schedules()) {
+                    val run = store.claimSchedule(schedule, Instant.now()) ?: continue
+                    store.executeRun(run, DesktopAction("repo_brief", schedule.repo))
+                }
+                delay(30_000)
+            }
+        }
+        Window(visible = visible, onCloseRequest = {
+            if (keepInTray && trayAvailable) visible = false else exitApplication()
+        }, title = "Alter",
             icon = painterResource("alter-window.png"),
             state = rememberWindowState(width = 1280.dp, height = 800.dp, position =
                 if ("--screenshot" in args) WindowPosition(0.dp, 0.dp) else WindowPosition.PlatformDefault)) {
@@ -73,7 +93,20 @@ fun main(args: Array<String>) {
                 window.addWindowListener(listener)
                 onDispose { window.removeWindowListener(listener) }
             }
-            AlterApp(store, isVisible, preview)
+            var project by remember {
+                mutableStateOf(store.projects().find { it.id.toString() == store.setting("activeProject") } ?: personalWorkspace)
+            }
+            var account by remember { mutableStateOf<AccountSession?>(null) }
+            LaunchedEffect(account) { account?.let { delay((it.expiresAt - System.currentTimeMillis()).coerceAtLeast(0)); account = null } }
+            key(project.id) {
+                val workspace = remember { if (project.id == 0L) store else store.openProject(project) }
+                DisposableEffect(workspace) { onDispose { if (workspace !== store) workspace.close() } }
+                AlterApp(workspace, visible && isVisible, preview, store, project, account, { account = it },
+                    trayAvailable, keepInTray, { keepInTray = it; store.setting("keepInTray", it.toString(), true) }) { next ->
+                    store.setting("activeProject", next.id.toString(), true)
+                    project = next
+                }
+            }
             if (args.contains("--screenshot")) LaunchedEffect(Unit) {
                 delay(1000)
                 val name = preview ?: "desktop"
@@ -84,14 +117,15 @@ fun main(args: Array<String>) {
                 val output = Path.of("build", "screenshots", "$name.png")
                 Files.createDirectories(output.parent)
                 ImageIO.write(Robot().createScreenCapture(Rectangle(window.locationOnScreen, window.size)), "png", output.toFile())
-                store.close(); exitApplication()
+                exitApplication()
             }
         }
-    }
+        }
+    } finally { store.close() }
 }
 
 @Composable
-private fun AlterApp(store: Store, active: Boolean, preview: String?) {
+private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: Store, project: Project, account: AccountSession?, changeAccount: (AccountSession?) -> Unit, trayAvailable: Boolean, keepInTray: Boolean, setKeepInTray: (Boolean) -> Unit, selectProject: (Project) -> Unit) {
     val scope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(Destination.entries.firstOrNull { it.name.equals(preview, true) } ?: if (preview == "capture") Destination.Home else Destination.Chat) }
     var settings by remember { mutableStateOf<String?>(when (preview) {
@@ -131,7 +165,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
     var runtimeModel by remember { mutableStateOf<RuntimeModel?>(null) }
     var detectedModels by remember { mutableStateOf(emptyList<RuntimeModel>()) }
     var cloud by remember { mutableStateOf<OpenAiSession?>(null) }
-    val modelLabel = cloud?.let { "OpenAI · ${it.model}" } ?: runtimeModel?.label ?: models.find { it.id == activeModel }?.title?.substringBefore(" ·")
+    var importedModel by remember { mutableStateOf<String?>(null) }
+    val modelLabel = cloud?.let { "OpenAI · ${it.model}" } ?: runtimeModel?.label ?: importedModel ?: models.find { it.id == activeModel }?.title?.substringBefore(" ·")
     var voiceModel by remember { mutableStateOf(store.setting("voiceModel")) }
     var customRuntime by remember { mutableStateOf(store.setting("cudaServer")) }
     val pond = remember { ShoalSimulation() }
@@ -162,29 +197,35 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
         destination = Destination.Chat
         settings = null
     }
-    fun activateModel(spec: ModelSpec) {
+    fun activateModel(spec: ModelSpec?, file: Path? = null) {
         if (modelWork != null || generation != null || speaking) return
         cloud = null
         runtimeModel = null
+        val title = spec?.title?.substringBefore(" ·") ?: requireNotNull(file).fileName.toString()
         modelWork = scope.launch {
-            modelStatus = "Loading ${spec.title.substringBefore(" ·")}…"
+            modelStatus = "Loading $title…"
             modelStartupFailed = false
             try {
                 val custom = customRuntime.takeIf(String::isNotBlank)?.let(Path::of)
-                native.start(spec, store.setting("modelPort", "8080").toInt(), custom, if (custom == null) 0 else 99)
-                store.setting("textModel", spec.id, true)
+                val port = store.setting("modelPort", "8080").toInt()
+                val layers = if (custom == null) 0 else 99
+                if (spec != null) {
+                    native.start(spec, port, custom, layers)
+                    store.setting("textModel", spec.id, true)
+                } else native.startFile(requireNotNull(file), port, custom, layers)
+                importedModel = if (file != null) title else null
                 cloud = null
                 runtimeModel = null
-                activeModel = spec.id
+                activeModel = spec?.id
                 error = null
-                modelStatus = "${spec.title.substringBefore(" ·")} is ready."
+                modelStatus = "$title is ready."
             } catch (e: CancellationException) { modelStatus = "Startup cancelled."; throw e }
             catch (e: Exception) {
                 modelStartupFailed = true
-                modelStatus = "Could not start ${spec.title.substringBefore(" ·")}."
+                modelStatus = "Could not start $title."
                 error = e.message ?: modelStatus
             } finally {
-                if (!native.running) activeModel = null
+                if (!native.running) { activeModel = null; importedModel = null }
                 modelWork = null
             }
         }
@@ -202,8 +243,20 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             finally { modelWork = null }
         }
     }
+    var pendingAction by remember { mutableStateOf<DesktopAction?>(null) }
+    var commandDraft by remember { mutableStateOf<String?>(null) }
+    fun reviewAction(action: DesktopAction, source: String?) {
+        if (action.name != "open_spotify" && !validRepo(action.argument)) {
+            settings = "Actions & schedules"
+            error = "Save a public GitHub repository for this project, then try the command again."
+            return
+        }
+        commandDraft = source
+        pendingAction = action
+    }
     fun send() {
         if (prompt.isBlank() || generation != null || speaking || modelWork != null) return
+        DesktopAction.parse(prompt, store.setting("githubRepo"))?.let { reviewAction(it, prompt.trim()); return }
         val external = runtimeModel
         val selectedCloud = cloud
         if (selectedCloud == null && external == null && !native.running) { activeModel = null; settings = "AI models"; error = "Choose a text model and tap Use model before chatting."; return }
@@ -218,7 +271,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             prompt = ""
             generation = scope.launch {
                 try {
-                    val reply = selectedCloud?.reply(history) ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt()).reply(history, external?.name)
+                    val reply = selectedCloud?.reply(history, project.instructions) ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt()).reply(history, external?.name, project.instructions)
                     store.addMessage(id, "assistant", reply); messages = store.messages(id); threads = store.threads()
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = e.message ?: "Model unavailable. Check model settings." }
@@ -227,6 +280,32 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
         }
     }
     MaterialTheme(colorScheme = colors, typography = typography) {
+        pendingAction?.let { action ->
+            AlertDialog(onDismissRequest = { pendingAction = null }, title = { Text(action.title) },
+                text = { Text("Run in ${project.name}? Alter will record the result in Activity.") },
+                dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
+                confirmButton = { Button(onClick = {
+                    pendingAction = null
+                    attempt {
+                        val origin = commandDraft
+                        val id = if (origin != null) store.addMessage(threadId, "user", origin) else null
+                        if (id != null) {
+                            drafts.remove(threadId); threadId = id; prompt = ""
+                            messages = store.messages(id); threads = store.threads()
+                        }
+                        generation = scope.launch {
+                            try {
+                                val run = catalog.beginRun(project.id, action)
+                                val result = catalog.executeRun(run, action)
+                                if (id != null) {
+                                    store.addMessage(id, "assistant", result)
+                                    messages = store.messages(id); threads = store.threads()
+                                }
+                            } finally { generation = null }
+                        }
+                    }
+                }) { Text("Run") } })
+        }
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             val content = cards.filter { card -> when (destination) {
                 Destination.Memories -> card.type == "text"
@@ -274,7 +353,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 Box(Modifier.width(245.dp).height(365.dp)) { sidebarContent() }
                             }
                         }
-                        if (sidebar && !compact) Spacer(Modifier.width(170.dp))
+                        ProjectPicker(project, catalog, canSwitch && prompt.isBlank(), selectProject)
                         Text(settings ?: if (destination == Destination.Chat) selectedThread?.title ?: "New chat"
                             else destination.title, Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 14.sp,
                             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -367,11 +446,12 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 var keyInput by remember { mutableStateOf("") }
                                 var cloudModel by remember { mutableStateOf("gpt-4.1-mini") }
                                 Text("OpenAI API", style = MaterialTheme.typography.titleMedium)
-                                Text("When selected, sending a message sends Alter’s instructions and up to 20 messages from the open conversation to OpenAI. Your key stays in memory for this session.", style = MaterialTheme.typography.bodySmall)
+                                Text("When selected, sending a message sends Alter’s instructions, project instructions and up to 20 messages from the open conversation to OpenAI. Your key stays in memory for this session.", style = MaterialTheme.typography.bodySmall)
                                 OutlinedTextField(keyInput, { keyInput = it.trim() }, singleLine = true, label = { Text("OpenAI API key") },
                                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                                 OutlinedTextField(cloudModel, { cloudModel = it.trim() }, singleLine = true, label = { Text("Chat Completions model ID") })
                                 TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = {
+                                    importedModel = null
                                     native.stop()
                                     activeModel = null
                                     runtimeModel = null
@@ -384,6 +464,13 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                     keyInput = ""
                                     modelStatus = "OpenAI disconnected."
                                 }) { Text("Disconnect OpenAI") }
+                                TextButton(enabled = canSwitch, onClick = { attempt {
+                                    val chooser = javax.swing.JFileChooser()
+                                    chooser.dialogTitle = "Use a local GGUF text model"
+                                    chooser.fileFilter = javax.swing.filechooser.FileNameExtensionFilter("GGUF models", "gguf")
+                                    if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION)
+                                        activateModel(null, chooser.selectedFile.toPath())
+                                } }) { Text("Use a GGUF file on this PC…") }
                                 Text("Other runtimes on this PC", style = MaterialTheme.typography.titleMedium)
                                 Text("Start Ollama or the LM Studio local server, then check for models.", style = MaterialTheme.typography.bodySmall)
                                 TextButton(enabled = canSwitch, onClick = {
@@ -406,7 +493,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                 }) { Text("Find installed models") }
                                 detectedModels.forEach { model ->
                                     TextButton(enabled = canSwitch && runtimeModel != model, onClick = {
-                                        native.stop()
+                                        importedModel = null
+                                    native.stop()
                                         activeModel = null
                                         cloud = null
                                         runtimeModel = model
@@ -451,17 +539,24 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                                     }
                                 }
                                 if (modelWork != null) TextButton(onClick = { modelWork?.cancel() }) { Text("Cancel download / startup") }
-                                if (activeModel != null) TextButton(enabled = canSwitch, onClick = { native.stop(); activeModel = null; modelStatus = "Local model stopped." }) { Text("Release model") }
+                                if (activeModel != null || importedModel != null) TextButton(enabled = canSwitch, onClick = { native.stop(); activeModel = null; importedModel = null; modelStatus = "Local model stopped." }) { Text("Release model") }
+                            }
+                            "Actions & schedules" -> {
+                                if (trayAvailable) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(keepInTray, onCheckedChange = setKeepInTray)
+                                    Text("Keep Alter running in the tray when closed")
+                                }
+                                ActivityPanel(catalog, store, project, { reviewAction(it, null) }, canSwitch)
                             }
                             "Voice & files" -> Text("Tap Mic in Alter AI to record, then Stop mic to transcribe with a downloaded Whisper model. Review the transcript before sending. File attachment, retrieval and system hotkeys need later Windows adapters.")
-                            "Backup & account" -> Text("Records are stored privately on this PC. Android ZIP v2 import/export and desktop Google authorization are pending. Do not copy an Android database into this app.")
+                            "Backup & account" -> AccountPanel(account, changeAccount)
                             "About" -> {
                                 Text("About Alter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                                 Text("Version details and the path to a newer Windows build.", color = colors.onSurface.copy(alpha = .62f))
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("Alter for Windows · 0.1.4", fontWeight = FontWeight.Bold)
+                                    Text("Alter for Windows · 0.2.0", fontWeight = FontWeight.Bold)
                                     Text("Install a newer MSI to upgrade. Your notes and downloaded models stay under your Windows user profile.")
                                     TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(
                                         "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("View latest build ↗") }

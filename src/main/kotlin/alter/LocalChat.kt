@@ -44,8 +44,8 @@ class LocalChat(private val port: Int) {
         }.distinct().sorted()
     }
 
-    suspend fun reply(history: List<Pair<String, String>>, model: String? = null): String {
-        val messages = chatMessages(history)
+    suspend fun reply(history: List<Pair<String, String>>, model: String? = null, projectInstructions: String = ""): String {
+        val messages = chatMessages(history, projectInstructions)
         val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$port/v1/chat/completions"))
             .timeout(Duration.ofMinutes(2)).header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(JSONObject().put("model", model).put("messages", messages)
@@ -81,10 +81,12 @@ data class RuntimeModel(val runtime: DesktopRuntime, val name: String) {
     val label get() = "$name · ${runtime.title}"
 }
 
-private fun chatMessages(history: List<Pair<String, String>>): JSONArray {
+private fun chatMessages(history: List<Pair<String, String>>, projectInstructions: String): JSONArray {
     val instructions = LocalChat::class.java.getResourceAsStream("/ALTER_INSTRUCTIONS.md")!!.bufferedReader().use { it.readText() }
     val messages = JSONArray().put(JSONObject().put("role", "system").put("content", instructions +
         "\nDesktop tools and web research are unavailable in this build. Never claim to save or execute actions."))
+    if (projectInstructions.isNotBlank()) messages.put(JSONObject().put("role", "user")
+        .put("content", "My instructions for this project: $projectInstructions"))
     history.takeLast(20).forEach { (sender, text) ->
         messages.put(JSONObject().put("role", sender).put("content", text.take(16000)))
     }
@@ -92,8 +94,8 @@ private fun chatMessages(history: List<Pair<String, String>>): JSONArray {
 }
 
 class OpenAiSession(private val apiKey: String, val model: String) {
-    suspend fun reply(history: List<Pair<String, String>>): String {
-        val body = JSONObject().put("model", model).put("messages", chatMessages(history)).put("max_completion_tokens", 512)
+    suspend fun reply(history: List<Pair<String, String>>, projectInstructions: String = ""): String {
+        val body = JSONObject().put("model", model).put("messages", chatMessages(history, projectInstructions)).put("max_completion_tokens", 512)
         val request = HttpRequest.newBuilder(URI("https://api.openai.com/v1/chat/completions"))
             .timeout(Duration.ofMinutes(2)).header("Content-Type", "application/json")
             .header("Authorization", "Bearer $apiKey")
