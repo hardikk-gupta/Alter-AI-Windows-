@@ -18,6 +18,46 @@ import java.util.Base64
 
 internal class AccountSession(val uid: String, val label: String, val idToken: String, val expiresAt: Long)
 
+internal class DesktopOAuthReturn(state: String, port: Int) : AutoCloseable {
+    private val server = HttpServer.create(InetSocketAddress("127.0.0.1", port), 0)
+    val code = CompletableDeferred<String>()
+    val redirect = "http://127.0.0.1:${server.address.port}/callback"
+
+    init {
+        server.createContext("/callback") { exchange -> exchange.use {
+            val pairs = runCatching {
+                exchange.requestURI.rawQuery.orEmpty().split('&').map { field ->
+                    field.substringBefore('=') to URLDecoder.decode(field.substringAfter('=', ""), Charsets.UTF_8)
+                }
+            }.getOrDefault(emptyList())
+            val params = pairs.toMap()
+            val valid = exchange.requestMethod == "GET" && exchange.requestURI.path == "/callback" &&
+                pairs.size == params.size && params["state"] == state
+            val body = (if (valid) "Return to Alter." else "Invalid sign-in callback.").toByteArray()
+            exchange.responseHeaders.add("Cache-Control","no-store")
+            exchange.sendResponseHeaders(if (valid) 200 else 400, body.size.toLong())
+            if (valid) {
+                val value = params["code"]
+                if (!value.isNullOrBlank() && !params.containsKey("error")) code.complete(value)
+                else code.completeExceptionally(IllegalStateException("Authorization was declined."))
+            }
+            exchange.responseBody.write(body)
+        } }
+        server.start()
+    }
+
+    override fun close() { server.stop(0); code.cancel() }
+}
+
+internal fun firebaseSession(result: JSONObject, link: AccountSession?): AccountSession {
+    check(!result.optBoolean("needConfirmation")) { "Sign in with the existing account and link this provider." }
+    val uid = result.getString("localId")
+    check(link == null || uid == link.uid) { "Account linking could not be verified." }
+    require(uid.isNotBlank() && result.getString("idToken").isNotBlank() && result.getLong("expiresIn") in 1..86400) { "Invalid identity session." }
+    return AccountSession(uid, result.optString("email").ifBlank { result.optString("displayName").ifBlank { uid } },
+        result.getString("idToken"), System.currentTimeMillis() + result.getLong("expiresIn") * 1000)
+}
+
 internal object DesktopAuth {
     private val http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))
         .followRedirects(HttpClient.Redirect.NEVER).build()
@@ -56,23 +96,9 @@ internal object DesktopAuth {
         val state = random()
         val verifier = random()
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
-        val callback = CompletableDeferred<String>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", when { spotify -> 43897; figma != null -> URI(figmaRedirect).port; else -> 0 }), 0)
-        val redirect = "http://127.0.0.1:${server.address.port}/callback"
-        server.createContext("/callback") { exchange ->
-            exchange.use {
-                val params = runCatching { exchange.requestURI.rawQuery.orEmpty().split('&').associate { param ->
-                    param.substringBefore('=') to URLDecoder.decode(param.substringAfter('=', ""), Charsets.UTF_8)
-                } }.getOrDefault(emptyMap())
-                val valid = exchange.requestMethod == "GET" && exchange.requestURI.path == "/callback" && params["state"] == state
-                val body = (if (valid) "Return to Alter." else "Invalid sign-in callback.").toByteArray()
-                exchange.sendResponseHeaders(if (valid) 200 else 400, body.size.toLong())
-                exchange.responseBody.write(body)
-                if (valid) params["code"]?.let(callback::complete) ?: callback.completeExceptionally(IllegalStateException("Authorization was declined."))
-            }
-        }
+        val receiver = DesktopOAuthReturn(state, when { spotify -> 43897; figma != null -> URI(figmaRedirect).port; else -> 0 })
+        val redirect = receiver.redirect
         try {
-            server.start()
             val params = mutableListOf("client_id" to client, "redirect_uri" to redirect, "response_type" to "code",
                 "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256")
             if (scopes.isNotBlank()) params.add("scope" to scopes)
@@ -80,14 +106,14 @@ internal object DesktopAuth {
             val query = form(*params.toTypedArray())
             val authUrl = figma?.authorize?.toString() ?: if (spotify) "https://accounts.spotify.com/authorize" else "https://accounts.google.com/o/oauth2/v2/auth"
             Desktop.getDesktop().browse(URI("$authUrl?$query"))
-            val code = withTimeoutOrNull(180_000) { callback.await() } ?: error("Authorization expired.")
+            val code = withTimeoutOrNull(180_000) { receiver.code.await() } ?: error("Authorization expired.")
             val tokenUrl = figma?.exchange?.toString() ?: if (spotify) "https://accounts.spotify.com/api/token" else "https://oauth2.googleapis.com/token"
             val fields = mutableListOf("code" to code, "client_id" to client, "code_verifier" to verifier,
                 "grant_type" to "authorization_code", "redirect_uri" to redirect)
             if (figma != null) fields.add("resource" to figmaResource)
             if (secret != null) fields.add("client_secret" to secret)
             return post(tokenUrl, form(*fields.toTypedArray()))
-        } finally { server.stop(0) }
+        } finally { receiver.close() }
     }
 
     suspend fun connect(plugin: ServicePlugin, store: Store): PluginGrant = withContext(Dispatchers.IO) {
@@ -131,10 +157,6 @@ internal object DesktopAuth {
             .put("requestUri", "http://localhost").put("returnSecureToken", true)
         if (link != null) body.put("idToken", link.idToken)
         val result = post("https://identitytoolkit.googleapis.com/v1/accounts:signInWithIdp?key=${encode(key)}", body.toString(), true)
-        check(!result.optBoolean("needConfirmation")) { "Sign in with the existing account and link this provider." }
-        val uid = result.getString("localId")
-        check(link == null || uid == link.uid) { "Account linking could not be verified." }
-        AccountSession(uid, result.optString("email").ifBlank { result.optString("displayName").ifBlank { uid } },
-            result.getString("idToken"), System.currentTimeMillis() + result.getLong("expiresIn") * 1000)
+        firebaseSession(result, link)
     }
 }

@@ -17,7 +17,7 @@ Original copied-source SHA: `0bda3d8583d1f53b6f305e1eeb22628c17a08e66`.
 | Whisper Tiny/Base dictation | Platform-adapted | Explicit Java Sound mic → bundled whisper.cpp → reviewable draft; hardware/language acceptance pending |
 | Moonshine, cleanup and TTS | Pending | No claim of complete Android voice pack parity |
 | Google Drive/account | Preview adapters | Google/GitHub sign-in and a separate read-only Drive metadata grant. Provider registration, live acceptance and backup remain pending. |
-| Windows hotkeys/tray/notifications/insertion | Partial | Opt-in tray and global hold-to-dictate. Notifications and foreground insertion remain pending. |
+| Windows hotkeys/tray/notifications/insertion | Partial | Opt-in tray, global hold-to-dictate and Windows UI Automation window resizing. Notifications and foreground insertion remain pending. |
 | Android change-notification issues | Pending configuration | Source tracked only; no sender/receiver/secrets or external messages created |
 | Windows native packaging/signing | Pending acceptance | CI packages an unsigned MSI with bundled inference engines; physical install/upgrade and signing pending |
 
