@@ -30,7 +30,7 @@ try {
     [IO.File]::WriteAllText((Join-Path $resources.FullName 'main.wxs'), $template.Replace($sequence, $declarations))
 } finally { Pop-Location }
 $log = Join-Path $resources.FullName "jpackage.log"
-& "$JavaHome/bin/jpackage.exe" --verbose --type $Format --name Alter --app-version $Version --app-image $AppImage --dest $OutputDir --resource-dir $resources.FullName --win-per-user-install --install-dir 'Programs\Alter' --win-menu --win-menu-group Alter --win-shortcut --win-upgrade-uuid $UpgradeId --icon packaging/alter.ico *> $log
+& "$JavaHome/bin/jpackage.exe" --verbose --type $Format --name Alter --app-version $Version --app-image $AppImage --dest $OutputDir --resource-dir $resources.FullName --win-per-user-install --install-dir 'Alter Desktop' --win-menu --win-menu-group Alter --win-shortcut --win-upgrade-uuid $UpgradeId --icon packaging/alter.ico *> $log
 if ($LASTEXITCODE) {
     Select-String -Path $log -Pattern 'error LGHT|error CNDL|ICE[0-9]+:|Exception:' | Select-Object -Last 12 | ForEach-Object { Write-Host $_.Line }
     throw 'Windows installer packaging failed.'

@@ -71,7 +71,7 @@ if ($run) {
     }
 }
 $installedApp = Install-Alter $current $currentInfo
-$expected = Join-Path $env:LOCALAPPDATA 'Programs/Alter/Alter.exe'
+$expected = Join-Path $env:LOCALAPPDATA 'Alter Desktop/Alter.exe'
 if ([IO.Path]::GetFullPath($installedApp) -ne [IO.Path]::GetFullPath($expected)) { throw 'The application and workspace directories must be separate.' }
 Open-Screen $installedApp 'plugins'
 if ($previousInfo) {
