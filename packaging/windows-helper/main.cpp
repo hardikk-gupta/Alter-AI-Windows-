@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <wincred.h>
+#include <psapi.h>
 #include <cstdio>
 #include <cwchar>
 #include <string>
@@ -34,6 +35,15 @@ int listWindows(DWORD excludePid);
 int setWindowState(HWND window, DWORD pid, bool maximize);
 
 int wmain(int argc, wchar_t** argv) {
+    if (argc == 3 && wcscmp(argv[1], L"peak-memory") == 0) {
+        HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_VM_READ, FALSE, wcstoul(argv[2], nullptr, 10));
+        if (!process) return 1;
+        PROCESS_MEMORY_COUNTERS usage{};
+        bool ok = GetProcessMemoryInfo(process, &usage, sizeof(usage)) != 0;
+        CloseHandle(process);
+        if (ok) std::printf("%llu\n", (unsigned long long)usage.PeakWorkingSetSize);
+        return ok ? 0 : 1;
+    }
     if (argc == 3 && wcscmp(argv[1], L"windows") == 0) return listWindows(wcstoul(argv[2], nullptr, 10));
     if (argc == 4 && (wcscmp(argv[1], L"maximize") == 0 || wcscmp(argv[1], L"restore") == 0))
         return setWindowState(reinterpret_cast<HWND>(wcstoull(argv[2], nullptr, 10)), wcstoul(argv[3], nullptr, 10),

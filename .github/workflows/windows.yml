@@ -107,6 +107,13 @@ jobs:
             $report = [xml](Get-Content "build/test-results/test/TEST-alter.PackagedChatTest.xml" -Raw)
             throw $report.testsuite.testcase.failure.message
           }
+      - name: Upload packaged model measurement
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v6
+        with:
+          name: Alter-Windows-Model-Benchmark
+          path: build/reports/packaged-model-benchmark.json
+          if-no-files-found: error
       - name: Upload Windows installer
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v6

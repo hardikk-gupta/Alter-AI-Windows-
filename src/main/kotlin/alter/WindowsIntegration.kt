@@ -22,6 +22,8 @@ internal object WindowsIntegration {
         } finally { process.destroyForcibly() }
     }
 
+    fun peakMemory(pid: Long): Long = windowCommand(listOf("peak-memory", pid.toString())).trim().toLong()
+
     fun windows(): List<WindowTarget> = windowCommand(listOf("windows", ProcessHandle.current().pid().toString()))
         .lineSequence().filter(String::isNotBlank).map {
             val fields = it.split('\t', limit = 3)

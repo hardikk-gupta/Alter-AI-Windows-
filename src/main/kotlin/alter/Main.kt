@@ -362,7 +362,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             prompt = ""
             generation = scope.launch {
                 try {
-                    val commands = if (store.setting("modelTools").toBoolean()) availableCommands() else emptyList()
+                    val commands = if (store.setting("modelTools").toBoolean() && external?.supportsTools != false) availableCommands() else emptyList()
                     val reply = selectedCloud?.turn(history, project.instructions, commands)
                         ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt())
                             .turn(history, external?.name, project.instructions, commands)
@@ -617,6 +617,31 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 var advanced by remember { mutableStateOf(false) }
                                 TextButton(onClick = { advanced = !advanced }) { Text(if (advanced) "Hide other providers" else "Other providers & runtimes…") }
                                 if (advanced) {
+                                    var benchmarkDialog by remember { mutableStateOf(false) }
+                                    var lastBenchmark by remember { mutableStateOf(store.setting("lastBenchmark")) }
+                                    TextButton(enabled = canSwitch, onClick = { benchmarkDialog = true }) { Text("Test local performance…") }
+                                    if (benchmarkDialog) AlertDialog(onDismissRequest = { benchmarkDialog = false },
+                                        title = { Text("Test local performance") }, text = { Column {
+                                            Text("Choose an installed model. Alter releases the current engine and times a short local reply.")
+                                            val choices = models.filter { it.kind == "text" && installed[it] == true }
+                                            if (choices.isEmpty()) Text("Download a text model first.")
+                                            choices.forEach { spec -> TextButton(onClick = {
+                                                benchmarkDialog = false
+                                                native.stop(); activeModel = null; importedModel = null
+                                                modelWork = scope.launch {
+                                                    modelStatus = "Testing ${spec.title}…"
+                                                    try {
+                                                        val report = benchmarkModel(spec, customRuntime.takeIf(String::isNotBlank)?.let(Path::of))
+                                                        lastBenchmark = report.toString()
+                                                        store.setting("lastBenchmark", lastBenchmark, true)
+                                                        modelStatus = benchmarkLabel(report)
+                                                    } catch (e: CancellationException) { modelStatus = "Test cancelled."; throw e }
+                                                    catch (e: Exception) { modelStatus = e.message ?: "The performance test failed." }
+                                                    finally { modelWork = null }
+                                                }
+                                            }) { Text(spec.title) } }
+                                            if (lastBenchmark.isNotBlank()) Text(benchmarkLabel(org.json.JSONObject(lastBenchmark)))
+                                        } }, confirmButton = { TextButton(onClick = { benchmarkDialog = false }) { Text("Close") } })
                                     Text("Bundled model runtime: ${if (customRuntime.isBlank()) "Included CPU runtime" else "Selected NVIDIA CUDA runtime"}")
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         TextButton(onClick = { attempt {
@@ -705,13 +730,21 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                         }
                                     }) { Text("Find installed models") }
                                     detectedModels.forEach { model ->
-                                        TextButton(enabled = canSwitch && runtimeModel != model, onClick = {
+                                        TextButton(enabled = canSwitch && runtimeModel?.label != model.label, onClick = {
                                             importedModel = null
                                             native.stop()
                                             activeModel = null
                                             cloud = null
-                                            runtimeModel = model
-                                            modelStatus = "Selected ${model.label}."
+                                            runtimeModel = null
+                                            modelWork = scope.launch {
+                                                modelStatus = "Checking ${model.label}…"
+                                                try {
+                                                    runtimeModel = LocalChat(model.runtime.port).checkChatModel(model)
+                                                    modelStatus = "Selected ${model.label}."
+                                                } catch (e: CancellationException) { modelStatus = "Selection cancelled."; throw e }
+                                                catch (e: Exception) { modelStatus = e.message ?: "Model does not support chat." }
+                                                finally { modelWork = null }
+                                            }
                                         }) { Text(model.label) }
                                     }
                                 }

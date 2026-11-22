@@ -1,7 +1,5 @@
 package alter
 
-import java.net.InetAddress
-import java.net.ServerSocket
 import java.nio.file.Files
 import java.nio.file.Path
 import kotlinx.coroutines.runBlocking
@@ -22,12 +20,13 @@ class PackagedChatTest {
                 val downloaded = downloadModel(model, { _, _ -> }, cache)
                 Files.createDirectories(modelPath(model).parent)
                 Files.copy(downloaded, modelPath(model))
-                val port = ServerSocket(0, 1, InetAddress.getLoopbackAddress()).use { it.localPort }
-                NativeModels().use { engine ->
-                    engine.start(model, port)
-                    val answer = LocalChat(port).reply(listOf("user" to "Say hello in one short sentence."))
-                    assertTrue(answer.isNotBlank())
-                }
+                val report = benchmarkModel(model)
+                assertTrue(report.getLong("peakEngineBytes") > 0)
+                assertTrue(report.getLong("firstReplyMs") > 0)
+                val output = Path.of("build", "reports", "packaged-model-benchmark.json")
+                Files.createDirectories(output.parent)
+                Files.writeString(output, report.toString(2))
+
             }
         } catch (e: Exception) {
             val log = directory.resolve("model-runtime.log")

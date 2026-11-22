@@ -2,7 +2,7 @@
 
 ## 0.2.2 desktop preview
 
-GitHub file editing creates a reviewed draft PR on a new branch. Skills can require plugins. Home shows deferred approvals and recent projects. Added Figma Cloud layer reads and Windows UI Automation controls for maximizing or restoring a selected window.
+GitHub file editing creates a reviewed draft PR on a new branch. Skills can require plugins. Home shows deferred approvals and recent projects. Local model selection checks chat capabilities. Settings measures local engine load time, first reply latency and peak working set. Added Figma Cloud layer reads and Windows UI Automation controls for maximizing or restoring a selected window.
 
 ## 0.2.1 desktop preview
 

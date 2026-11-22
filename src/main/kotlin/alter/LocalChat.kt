@@ -66,10 +66,56 @@ class LocalChat(private val port: Int) {
             for (index in 0 until entries.length()) {
                 val entry = entries.getJSONObject(index)
                 val name = entry.optString(if (ollama) "name" else "id").trim()
-                if (name.isNotEmpty() && name.length <= 256 && !name.endsWith(":cloud") &&
+                if (name.isNotEmpty() && name.length <= 256 && !name.endsWith(":cloud", true) && !name.endsWith("-cloud", true) &&
                     entry.optString("remote_host").isBlank() && entry.optString("remote_model").isBlank()) add(name)
             }
         }.distinct().sorted()
+    }
+
+    suspend fun checkChatModel(model: RuntimeModel): RuntimeModel {
+        val root = "http://127.0.0.1:$port"
+        val ollama = model.runtime == DesktopRuntime.Ollama
+        val request = if (ollama) HttpRequest.newBuilder(URI("$root/api/show"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString(JSONObject().put("model", model.name).toString()))
+        else HttpRequest.newBuilder(URI("$root/api/v1/models")).GET()
+        val response = client.sendAsync(request.timeout(Duration.ofSeconds(10)).build(), HttpResponse.BodyHandlers.ofString()).await()
+        if (ollama || response.statusCode() == 200) {
+            check(response.statusCode() == 200) { "Could not inspect ${model.name} in ${model.runtime.title}." }
+            require(response.body().length <= 4_000_000) { "Model metadata is too large." }
+            val info = JSONObject(response.body())
+            if (ollama) {
+                require(info.optString("remote_model").isBlank() && info.optString("remote_host").isBlank() &&
+                    !model.name.endsWith("-cloud", true) && !model.name.endsWith(":cloud", true)) { "Choose a model installed on this PC." }
+                info.optJSONArray("capabilities")?.let { list ->
+                    val capabilities = (0 until list.length()).map { list.getString(it) }
+                    require("completion" in capabilities) { "This model does not support text chat." }
+                    return model.copy(supportsTools = "tools" in capabilities)
+                }
+            } else {
+                val list = info.getJSONArray("models")
+                val item = (0 until list.length()).map { list.getJSONObject(it) }.firstOrNull {
+                    val instances = it.optJSONArray("loaded_instances") ?: JSONArray()
+                    it.optString("key") == model.name || (0 until instances.length()).any { index ->
+                        instances.getJSONObject(index).optString("id") == model.name
+                    }
+                }
+                if (item != null) {
+                    require(item.getString("type") == "llm") { "This model does not support text chat." }
+                    return model.copy(supportsTools = item.optJSONObject("capabilities")?.optBoolean("trained_for_tool_use"))
+                }
+            }
+        } else check(response.statusCode() in setOf(404,405)) { "LM Studio model metadata returned HTTP ${response.statusCode()}." }
+        // Older local servers do not report capabilities. Probe the exact selected model.
+        val probe = JSONObject().put("model", model.name).put("max_tokens", 1).put("stream", false)
+            .put("messages", JSONArray().put(JSONObject().put("role","user").put("content","Hi")))
+        val chat = HttpRequest.newBuilder(URI("$root/v1/chat/completions")).timeout(Duration.ofMinutes(2))
+            .header("Content-Type","application/json").POST(HttpRequest.BodyPublishers.ofString(probe.toString())).build()
+        val result = client.sendAsync(chat, HttpResponse.BodyHandlers.ofString()).await()
+        check(result.statusCode() == 200 && JSONObject(result.body()).getJSONArray("choices").getJSONObject(0).has("message")) {
+            "The selected local model could not return a chat completion."
+        }
+        return model
     }
 
     suspend fun reply(history: List<Pair<String, String>>, model: String? = null, projectInstructions: String = ""): String {
@@ -103,7 +149,7 @@ enum class DesktopRuntime(val title: String, val port: Int, val catalogPath: Str
     LmStudio("LM Studio", 1234, "/v1/models")
 }
 
-data class RuntimeModel(val runtime: DesktopRuntime, val name: String) {
+data class RuntimeModel(val runtime: DesktopRuntime, val name: String, val supportsTools: Boolean? = null) {
     val label get() = "$name · ${runtime.title}"
 }
 

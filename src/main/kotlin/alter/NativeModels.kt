@@ -45,6 +45,7 @@ fun nativeProgram(name: String): Path {
 
 class NativeModels : AutoCloseable {
     private var server: Process? = null
+    internal val processId get() = requireNotNull(server).pid()
     val running get() = server?.isAlive == true
 
     suspend fun start(spec: ModelSpec, port: Int, externalServer: Path? = null, gpuLayers: Int = 0): Unit = withContext(Dispatchers.IO) {

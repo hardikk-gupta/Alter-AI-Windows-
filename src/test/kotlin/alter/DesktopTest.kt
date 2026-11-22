@@ -152,6 +152,40 @@ class DesktopTest {
         } finally { server.stop(0) }
     }
 
+    @Test fun localModelChecksRejectCloudAndEmbeddingModelsBeforeChat() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        var ollamaInfo = """{"capabilities":["completion","tools"]}"""
+        var legacy = false
+        var probes = 0
+        server.createContext("/") { exchange -> exchange.use {
+            val body = when (it.requestURI.path) {
+                "/api/show" -> ollamaInfo
+                "/api/v1/models" -> """{"models":[{"key":"vector","type":"embedding"}]}"""
+                "/v1/chat/completions" -> { probes++; """{"choices":[{"message":{"role":"assistant","content":"Hello"}}]}""" }
+                else -> "{}"
+            }
+            val bytes = body.toByteArray()
+            it.sendResponseHeaders(if (legacy && it.requestURI.path == "/api/v1/models") 404 else 200, bytes.size.toLong())
+            it.responseBody.write(bytes)
+        } }
+        try {
+            server.start()
+            val chat = LocalChat(server.address.port)
+            val qwen = RuntimeModel(DesktopRuntime.Ollama, "qwen")
+            assertEquals(true, chat.checkChatModel(qwen).supportsTools)
+            ollamaInfo = """{"remote_model":"cloud-model","capabilities":["completion"]}"""
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(qwen) }
+            ollamaInfo = """{"capabilities":["embedding"]}"""
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(qwen) }
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(RuntimeModel(DesktopRuntime.LmStudio, "vector")) }
+            assertEquals(0,probes)
+            legacy = true
+            val older = RuntimeModel(DesktopRuntime.LmStudio, "local-chat")
+            assertEquals(older, chat.checkChatModel(older))
+            assertEquals(1,probes)
+        } finally { server.stop(0) }
+    }
+
     @Test fun modelHttpFailureIsReported() = runBlocking {
         val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/") { exchange -> exchange.sendResponseHeaders(503, -1); exchange.close() }

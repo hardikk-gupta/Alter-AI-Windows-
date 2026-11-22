@@ -15,3 +15,5 @@ Target hardware: low-end CPU PCs as well as the user's Ryzen 7000 HS, RTX 4050, 
 The [desktop product goal](docs/DESKTOP_PRODUCT_GOAL.md) defines the full Windows experience, current implementation, integration dependencies and acceptance checks.
 
 The 0.2.1 preview connects project-scoped actions, plugins, schedules and voice controls. Windows CI exercises packaged Qwen and renders the Plugins screen. Live identity and OAuth provider acceptance requires app registrations. Physical microphone, DPI, shortcut and low-memory measurements remain device checks.
+
+The 0.2.2 preview adds draft PR editing, connection-aware skills, deferred approvals, Figma remote MCP, verified window controls and local model measurements. The [product map](docs/DESKTOP_PRODUCT_GOAL.md) lists remaining live-account and physical-device acceptance for each feature.
