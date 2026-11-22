@@ -23,7 +23,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
-import com.example.ui.Lucide
+import com.example.ui.AlterIcons
 import com.example.ui.theme.*
 
 @Composable
@@ -41,7 +41,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
         if (messages.isEmpty()) {
             Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center) {
-                Icon(painterResource("alter-logo.xml"), null, Modifier.size(36.dp), AlterYellow)
+                Icon(painterResource("alter-logo.xml"), null, Modifier.size(23.dp), AlterYellow)
                 Spacer(Modifier.height(12.dp))
                 Text("What’s on your mind?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Medium)
             }
@@ -54,7 +54,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                         .background(c.secondaryContainer, RoundedCornerShape(16.dp)).padding(horizontal = 15.dp, vertical = 10.dp)
                         else Modifier.fillMaxWidth()) {
                         SelectionContainer { Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp) }
-                        if (!user) WorkspaceButton(Lucide.Memories, "Copy reply") { clipboard.setText(AnnotatedString(text)) }
+                        if (!user) WorkspaceButton(AlterIcons.Copy, "Copy reply") { clipboard.setText(AnnotatedString(text)) }
                     }
                 }
             }
@@ -75,7 +75,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                 Row(Modifier.background(c.surface, CircleShape).clickable(enabled = !busy && !generating && !speaking) { modelMenu = true }
                     .padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(activeModel ?: "Model", fontSize = 12.sp)
-                    Icon(Lucide.ChevronDown, "Choose text model", Modifier.padding(start = 4.dp).size(12.dp))
+                    Icon(AlterIcons.ChevronDown, "Choose text model", Modifier.padding(start = 4.dp).size(12.dp))
                 }
                 DropdownMenu(modelMenu, onDismissRequest = { modelMenu = false }) {
                     models.filter { it.kind == "text" }.forEach { spec ->
@@ -88,12 +88,12 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                 }
             }
             IconButton(mic, Modifier.size(34.dp), enabled = !busy && !generating) {
-                Icon(if (speaking) Lucide.Stop else Lucide.Mic, if (speaking) "Stop dictation" else "Dictate", Modifier.size(16.dp))
+                Icon(if (speaking) AlterIcons.Stop else AlterIcons.Mic, if (speaking) "Stop dictation" else "Dictate", Modifier.size(16.dp))
             }
             FilledIconButton(if (generating) stop else send, Modifier.size(32.dp),
                 enabled = generating || (prompt.isNotBlank() && !busy && !speaking),
                 colors = IconButtonDefaults.filledIconButtonColors(containerColor = AlterYellow, contentColor = PitchBlack)) {
-                Icon(if (generating) Lucide.Stop else Lucide.ArrowRight, if (generating) "Stop reply" else "Send message",
+                Icon(if (generating) AlterIcons.Stop else AlterIcons.ArrowRight, if (generating) "Stop reply" else "Send message",
                     Modifier.size(16.dp).graphicsLayer { rotationZ = if (generating) 0f else -90f })
             }
         }

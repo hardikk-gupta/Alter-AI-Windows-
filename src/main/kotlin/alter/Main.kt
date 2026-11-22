@@ -140,12 +140,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
             font.use { FontFamily(androidx.compose.ui.text.platform.Font("Satoshi", it.readBytes())) }
         }.getOrDefault(FontFamily.SansSerif)
     }
-    val colors = if (dark) darkColorScheme(primary = AlterYellow, onPrimary = PitchBlack,
-        background = PitchBlack, surface = SlateGrayCard, onSurface = SecondaryText,
-        onBackground = SecondaryText, outline = ReviewBorder, secondaryContainer = HoverSurface)
-    else lightColorScheme(primary = AlterYellow, onPrimary = PitchBlack,
-        background = Color(0xFFF7F8FA), surface = Color.White, onSurface = Color(0xFF111111),
-        onBackground = Color(0xFF111111), outline = Color(0xFFEAEAEA))
+    val colors = if (dark) DarkColorScheme else LightColorScheme
     val typography = Typography().let { t -> t.copy(
         headlineSmall = t.headlineSmall.copy(fontFamily = satoshi, fontSize = 26.sp, lineHeight = 34.sp),
         titleMedium = t.titleMedium.copy(fontFamily = satoshi),
@@ -264,20 +259,20 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     Row(Modifier.fillMaxWidth().height(43.dp).background(colors.surface).padding(horizontal = 8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Box {
-                            WorkspaceButton(Lucide.Menu, "Toggle side panel", sidebar) { sidebar = !sidebar }
+                            WorkspaceButton(AlterIcons.SidebarLeft, if (sidebar) "Collapse navigation" else "Expand navigation", sidebar) { sidebar = !sidebar }
                             if (compact) DropdownMenu(sidebar, { sidebar = false }) {
                                 Box(Modifier.width(245.dp).height(365.dp)) { sidebarContent() }
                             }
                         }
-                        if (sidebar && !compact) Spacer(Modifier.width(236.dp))
+                        if (sidebar && !compact) Spacer(Modifier.width(170.dp))
                         Text(settings ?: if (destination == Destination.Chat) selectedThread?.title ?: "New chat"
                             else destination.title, Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 14.sp,
                             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                             fontWeight = FontWeight.Medium)
                         if (settings == null && destination == Destination.Chat && selectedThread != null && canSwitch)
-                            WorkspaceButton(Lucide.Trash, "Delete chat") { deleteChat = selectedThread }
+                            WorkspaceButton(AlterIcons.Trash, "Delete chat") { deleteChat = selectedThread }
                         Box {
-                            WorkspaceButton(Lucide.Info, "Workspace details", details) { details = !details }
+                            WorkspaceButton(AlterIcons.Info, "Workspace details", details) { details = !details }
                             if (!wide) DropdownMenu(details, { details = false }) {
                                 Box(Modifier.width(248.dp)) { detailsContent() }
                             }
@@ -285,12 +280,13 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     }
                     HorizontalDivider(color = colors.outline)
                     Row(Modifier.fillMaxSize()) {
-                Row(Modifier.fillMaxHeight().padding(5.dp).clip(RoundedCornerShape(13.dp))
-                    .background(if (dark) Color(0xFF37363D) else colors.secondaryContainer).padding(end = 5.dp, top = 5.dp, bottom = 5.dp)) {
+                if (compact || sidebar) Row(Modifier.fillMaxHeight().padding(5.dp).clip(RoundedCornerShape(16.dp))
+                    .background(colors.surface).border(1.dp, colors.outline, RoundedCornerShape(16.dp)).padding(2.dp)) {
                 ActivityRail(destination, settings != null, { destination = it; settings = null; search = "" },
-                    { settings = "Appearance"; if (!compact) sidebar = true })
+                    { settings = "Appearance"; if (!compact) sidebar = true },
+                    if (compact) null else ({ sidebar = false }))
                 if (sidebar && !compact) {
-                    Box(Modifier.width(216.dp)) { sidebarContent() }
+                    Box(Modifier.width(174.dp)) { sidebarContent() }
                 }
                 }
                 Box(Modifier.weight(1f).fillMaxHeight()) {
@@ -452,7 +448,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                     } else {
                         Text(destination.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         OutlinedTextField(search, { search = it }, Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(12.dp)), singleLine = true,
-                            placeholder = { Text("Search ${destination.title.lowercase()}") }, leadingIcon = { Icon(Lucide.Search, null) })
+                            placeholder = { Text("Search ${destination.title.lowercase()}") }, leadingIcon = { Icon(AlterIcons.Search, null) })
                         val filtered = content.filter { (it.rawInput + "\n" + it.processedContent).contains(search, ignoreCase = true) }
                         LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             if (filtered.isEmpty()) item { Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
@@ -476,9 +472,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                             exit = fadeOut(tween(140)) + scaleOut(transformOrigin = TransformOrigin(1f, 1f), animationSpec = tween(180))) {
                             Column(Modifier.background(colors.surface, RoundedCornerShape(18.dp))
                                 .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(8.dp)) {
-                                listOf(Triple("Memory", "text", Lucide.Memories),
-                                    Triple("Note", "note", Lucide.FileText),
-                                    Triple("Task", "upcoming", Lucide.Calendar)).forEach { (label, type, icon) ->
+                                listOf(Triple("Memory", "text", AlterIcons.Memories),
+                                    Triple("Note", "note", AlterIcons.FileText),
+                                    Triple("Task", "upcoming", AlterIcons.Calendar)).forEach { (label, type, icon) ->
                                     Row(Modifier.width(156.dp).height(46.dp).clickable {
                                         captureOpen = false
                                         draft = AlterCard(type = type, rawInput = "", processedContent = "")
@@ -493,7 +489,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?) {
                         FilledIconButton(onClick = { captureOpen = !captureOpen },
                             modifier = Modifier.size(52.dp), shape = RoundedCornerShape(16.dp),
                             colors = IconButtonDefaults.filledIconButtonColors(containerColor = AlterYellow, contentColor = PitchBlack)) {
-                            Icon(Lucide.Plus, if (captureOpen) "Close capture actions" else "Add capture",
+                            Icon(AlterIcons.Plus, if (captureOpen) "Close capture actions" else "Add capture",
                                 Modifier.size(24.dp).graphicsLayer { rotationZ = rotation })
                         }
                     }
@@ -536,7 +532,7 @@ private fun HomeContent(cards: List<AlterCard>, onChat: () -> Unit, onUpcoming: 
     val tasks = cards.filter { it.type == "upcoming" }.take(2)
     val recent = cards.filter { it.type != "upcoming" }.take(2)
     Column(modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(26.dp)) {
-        WorkspaceRow("Open Alter AI", Lucide.Sparkles, onClick = onChat)
+        WorkspaceRow("Open Alter AI", AlterIcons.Chat, onClick = onChat)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
             Column(Modifier.weight(1f)) {
                 Text("Overview", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -596,7 +592,7 @@ private fun EntryCard(card: AlterCard, onEdit: () -> Unit, onDelete: () -> Unit,
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             TextButton(onClick = onEdit) { Text("Edit") }
-            IconButton(onClick = onDelete) { Icon(Lucide.Trash, "Delete entry", Modifier.size(18.dp)) }
+            IconButton(onClick = onDelete) { Icon(AlterIcons.Trash, "Delete entry", Modifier.size(18.dp)) }
         }
     }
 }
