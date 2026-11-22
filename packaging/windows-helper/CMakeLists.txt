@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.15)
+project(alter_windows LANGUAGES CXX)
+add_executable(alter-windows main.cpp)
+target_compile_features(alter-windows PRIVATE cxx_std_17)
+set_property(TARGET alter-windows PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+target_link_libraries(alter-windows PRIVATE user32 advapi32)

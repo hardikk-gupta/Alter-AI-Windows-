@@ -29,6 +29,7 @@ import com.example.ui.theme.*
 @Composable
 internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, update: (String) -> Unit,
     activeModel: String?, installed: Map<ModelSpec, Boolean>, busy: Boolean, speaking: Boolean, generating: Boolean,
+    projectSkills: List<ProjectSkill>, useSkill: (ProjectSkill) -> Unit,
     status: String, choose: (ModelSpec) -> Unit, manage: () -> Unit, capture: (String) -> Unit, mic: () -> Unit, send: () -> Unit, stop: () -> Unit) {
     val c = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
@@ -58,6 +59,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                     Column(if (user) Modifier.fillMaxWidth(.78f).wrapContentWidth(Alignment.End)
                         .background(c.secondaryContainer, RoundedCornerShape(16.dp)).padding(horizontal = 15.dp, vertical = 10.dp)
                         else Modifier.fillMaxWidth()) {
+                        if (role == "action") Text("Action result", style = MaterialTheme.typography.labelLarge)
                         SelectionContainer { Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp) }
                         if (!user) WorkspaceButton(AlterIcons.Copy, "Copy reply") { clipboard.setText(AnnotatedString(text)) }
                     }
@@ -74,6 +76,9 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                     Icon(AlterIcons.Plus, "Capture with a skill", Modifier.size(16.dp))
                 }
                 DropdownMenu(skillsMenu, onDismissRequest = { skillsMenu = false }) {
+                    projectSkills.filter { it.enabled }.forEach { skill ->
+                        DropdownMenuItem(text = { Text(skill.title) }, onClick = { skillsMenu = false; useSkill(skill) })
+                    }
                     skills.forEach { skill ->
                         val type = when (skill.id) {
                             "approved-memory" -> "text"

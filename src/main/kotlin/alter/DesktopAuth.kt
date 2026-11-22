@@ -50,14 +50,14 @@ internal object DesktopAuth {
         return JSONObject(result.body())
     }
 
-    private suspend fun google(): String {
-        val client = config("ALTER_GOOGLE_DESKTOP_CLIENT_ID")
-        val secret = config("ALTER_GOOGLE_DESKTOP_CLIENT_SECRET")
+    private suspend fun browserGrant(scopes: String, spotify: Boolean = false): JSONObject {
+        val client = config(if (spotify) "ALTER_SPOTIFY_CLIENT_ID" else "ALTER_GOOGLE_DESKTOP_CLIENT_ID")
+        val secret = if (spotify) null else config("ALTER_GOOGLE_DESKTOP_CLIENT_SECRET")
         val state = random()
         val verifier = random()
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
         val callback = CompletableDeferred<String>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", if (spotify) 43897 else 0), 0)
         val redirect = "http://127.0.0.1:${server.address.port}/callback"
         server.createContext("/callback") { exchange ->
             exchange.use {
@@ -68,19 +68,29 @@ internal object DesktopAuth {
                 val body = (if (valid) "Return to Alter." else "Invalid sign-in callback.").toByteArray()
                 exchange.sendResponseHeaders(if (valid) 200 else 400, body.size.toLong())
                 exchange.responseBody.write(body)
-                if (valid) params["code"]?.let(callback::complete) ?: callback.completeExceptionally(IllegalStateException("Google sign-in was declined."))
+                if (valid) params["code"]?.let(callback::complete) ?: callback.completeExceptionally(IllegalStateException("Authorization was declined."))
             }
         }
         try {
             server.start()
             val query = form("client_id" to client, "redirect_uri" to redirect, "response_type" to "code",
-                "scope" to "openid email profile", "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256")
-            Desktop.getDesktop().browse(URI("https://accounts.google.com/o/oauth2/v2/auth?$query"))
-            val code = withTimeoutOrNull(180_000) { callback.await() } ?: error("Google sign-in expired.")
-            return post("https://oauth2.googleapis.com/token", form("code" to code, "client_id" to client,
-                "client_secret" to secret, "code_verifier" to verifier, "grant_type" to "authorization_code",
-                "redirect_uri" to redirect)).getString("id_token")
+                "scope" to scopes, "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256")
+            val authUrl = if (spotify) "https://accounts.spotify.com/authorize" else "https://accounts.google.com/o/oauth2/v2/auth"
+            Desktop.getDesktop().browse(URI("$authUrl?$query"))
+            val code = withTimeoutOrNull(180_000) { callback.await() } ?: error("Authorization expired.")
+            val tokenUrl = if (spotify) "https://accounts.spotify.com/api/token" else "https://oauth2.googleapis.com/token"
+            val fields = mutableListOf("code" to code, "client_id" to client, "code_verifier" to verifier,
+                "grant_type" to "authorization_code", "redirect_uri" to redirect)
+            if (secret != null) fields.add("client_secret" to secret)
+            return post(tokenUrl, form(*fields.toTypedArray()))
         } finally { server.stop(0) }
+    }
+
+    suspend fun connect(plugin: ServicePlugin): PluginGrant = withContext(Dispatchers.IO) {
+        val result = browserGrant(plugin.scope, plugin == ServicePlugin.Spotify)
+        val granted = result.optString("scope").split(" ").toSet()
+        check(plugin.scope.split(" ").all { it in granted }) { "The requested permission was not granted." }
+        PluginGrant(result.getString("access_token"), System.currentTimeMillis() + 1000L * result.getLong("expires_in"))
     }
 
     private suspend fun github(status: suspend (String) -> Unit): String {
@@ -107,7 +117,7 @@ internal object DesktopAuth {
     suspend fun signIn(provider: String, link: AccountSession?, status: suspend (String) -> Unit): AccountSession = withContext(Dispatchers.IO) {
         val key = config("ALTER_FIREBASE_WEB_API_KEY")
         val credential = when (provider) {
-            "google.com" -> "id_token" to google()
+            "google.com" -> "id_token" to browserGrant("openid email profile").getString("id_token")
             "github.com" -> "access_token" to github(status)
             else -> error("Unknown identity provider")
         }

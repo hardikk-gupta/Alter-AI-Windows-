@@ -102,6 +102,7 @@ fun main(args: Array<String>) {
                 val workspace = remember { if (project.id == 0L) store else store.openProject(project) }
                 DisposableEffect(workspace) { onDispose { if (workspace !== store) workspace.close() } }
                 AlterApp(workspace, visible && isVisible, preview, store, project, account, { account = it },
+                    { visible = true; window.extendedState = java.awt.Frame.NORMAL; window.toFront() },
                     trayAvailable, keepInTray, { keepInTray = it; store.setting("keepInTray", it.toString(), true) }) { next ->
                     store.setting("activeProject", next.id.toString(), true)
                     project = next
@@ -125,10 +126,11 @@ fun main(args: Array<String>) {
 }
 
 @Composable
-private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: Store, project: Project, account: AccountSession?, changeAccount: (AccountSession?) -> Unit, trayAvailable: Boolean, keepInTray: Boolean, setKeepInTray: (Boolean) -> Unit, selectProject: (Project) -> Unit) {
+private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: Store, project: Project, account: AccountSession?, changeAccount: (AccountSession?) -> Unit, showWindow: () -> Unit, trayAvailable: Boolean, keepInTray: Boolean, setKeepInTray: (Boolean) -> Unit, selectProject: (Project) -> Unit) {
     val scope = rememberCoroutineScope()
     var destination by remember { mutableStateOf(Destination.entries.firstOrNull { it.name.equals(preview, true) } ?: if (preview == "capture") Destination.Home else Destination.Chat) }
     var settings by remember { mutableStateOf<String?>(when (preview) {
+        "plugins" -> "Plugins"; "skills" -> "Skills"; "actions" -> "Actions & schedules"
         "models" -> "AI models"; "appearance" -> "Appearance"; "about" -> "About"
         "voice" -> "Voice & files"; "backup" -> "Backup & account"; else -> null
     }) }
@@ -243,16 +245,86 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             finally { modelWork = null }
         }
     }
+    fun toggleMic() {
+        if (!recorder.recording) attempt {
+            val chosen = models.firstOrNull { it.id == store.setting("voiceModel") }
+                ?: error("Download and select a speech model in AI models first.")
+            require(installed[chosen] == true) { "Selected speech model is missing." }
+            recorder.start(); speaking = true; modelStatus = "Recording… Tap Stop when finished."
+        } else {
+            speaking = false
+            val chosen = models.first { it.id == store.setting("voiceModel") }
+            modelWork = scope.launch {
+                modelStatus = "Transcribing locally…"
+                try {
+                    val transcript = recorder.stopAndTranscribe(chosen)
+                    prompt = listOf(prompt.trim(), transcript).filter(String::isNotBlank).joinToString(" ")
+                    modelStatus = "Transcript ready. Review it before sending."
+                } catch (e: Exception) { error = e.message ?: "Transcription failed." }
+                finally { modelWork = null }
+            }
+        }
+    }
+    var shortcut by remember { mutableStateOf(store.setting("voiceShortcut").toBoolean()) }
+    LaunchedEffect(shortcut) {
+        if (shortcut && WindowsIntegration.available) {
+            var started = false
+            try {
+                WindowsIntegration.watchShortcut { event -> withContext(Dispatchers.Main) {
+                    if (event == "down" && !speaking && modelWork == null && generation == null) {
+                        showWindow(); settings = null; destination = Destination.Chat
+                        toggleMic(); started = speaking
+                    } else if (event == "up" && started) {
+                        started = false
+                        if (speaking) toggleMic()
+                    }
+                } }
+            } catch (e: CancellationException) { throw e }
+            catch (e: Exception) { error = e.message; shortcut = false; store.setting("voiceShortcut", "false", true) }
+            finally { if (started && speaking) { recorder.close(); speaking = false } }
+        }
+    }
+    LaunchedEffect(active, speaking, modelWork, generation) {
+        if (!active && !speaking && modelWork == null && generation == null) {
+            delay(60_000)
+            if (native.running) {
+                native.stop(); activeModel = null; importedModel = null; modelStatus = "Released the idle local model."
+            }
+        }
+    }
     var pendingAction by remember { mutableStateOf<DesktopAction?>(null) }
+    var projectSkills by remember { mutableStateOf(store.projectSkills()) }
+    val pluginGrants = remember { mutableStateMapOf<ServicePlugin, PluginGrant>() }
+    var palette by remember { mutableStateOf(false) }
+    var proposalThread by remember { mutableStateOf<Long?>(null) }
     var commandDraft by remember { mutableStateOf<String?>(null) }
     fun reviewAction(action: DesktopAction, source: String?) {
-        if (action.name != "open_spotify" && !validRepo(action.argument)) {
+        if (action.plugin?.let { (pluginGrants[it]?.expiry ?: 0) <= System.currentTimeMillis() } == true) {
+            settings = "Plugins"; error = "Connect ${action.plugin?.label} first."; return
+        }
+        if (action.name == "figma_read" && !store.setting("figmaEnabled").toBoolean()) {
+            settings = "Plugins"
+            error = "Enable Figma Desktop in this project first."
+            return
+        }
+        if (action.name in setOf("repo_brief", "open_repo", "repo_issues") && !validRepo(action.argument)) {
             settings = "Actions & schedules"
             error = "Save a public GitHub repository for this project, then try the command again."
             return
         }
+        proposalThread = null
         commandDraft = source
         pendingAction = action
+    }
+    fun availableCommands(): List<DesktopAction> {
+            val repo = store.setting("githubRepo")
+            return buildList {
+                add(DesktopAction("open_spotify"))
+                if (validRepo(repo)) { add(DesktopAction("open_repo", repo)); add(DesktopAction("repo_brief", repo)); add(DesktopAction("repo_issues", repo)) }
+                if (pluginGrants.containsKey(ServicePlugin.Calendar)) add(DesktopAction("calendar_events"))
+                if (pluginGrants.containsKey(ServicePlugin.Drive)) add(DesktopAction("drive_files"))
+                if (store.setting("figmaEnabled").toBoolean()) add(DesktopAction("figma_read"))
+            }
     }
     fun send() {
         if (prompt.isBlank() || generation != null || speaking || modelWork != null) return
@@ -271,8 +343,16 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             prompt = ""
             generation = scope.launch {
                 try {
-                    val reply = selectedCloud?.reply(history, project.instructions) ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt()).reply(history, external?.name, project.instructions)
-                    store.addMessage(id, "assistant", reply); messages = store.messages(id); threads = store.threads()
+                    val commands = if (store.setting("modelTools").toBoolean()) availableCommands() else emptyList()
+                    val reply = selectedCloud?.turn(history, project.instructions, commands)
+                        ?: LocalChat(external?.runtime?.port ?: store.setting("modelPort", "8080").toInt())
+                            .turn(history, external?.name, project.instructions, commands)
+                    if (reply.proposal != null) {
+                        reviewAction(reply.proposal, null)
+                        proposalThread = id
+                    } else {
+                        store.addMessage(id, "assistant", reply.text); messages = store.messages(id); threads = store.threads()
+                    }
                 } catch (e: CancellationException) { throw e }
                 catch (e: Exception) { error = e.message ?: "Model unavailable. Check model settings." }
                 finally { generation = null }
@@ -280,6 +360,16 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
         }
     }
     MaterialTheme(colorScheme = colors, typography = typography) {
+        if (palette) {
+            val commands = availableCommands()
+            var query by remember { mutableStateOf("") }
+            AlertDialog(onDismissRequest = { palette = false }, title = { Text("Commands") },
+                text = { Column {
+                    OutlinedTextField(query, { query = it }, singleLine = true, label = { Text("Find a command") })
+                    for (command in commands.filter { it.title.contains(query, true) })
+                        TextButton(onClick = { palette = false; reviewAction(command, null) }) { Text(command.title) }
+                } }, confirmButton = { TextButton(onClick = { palette = false }) { Text("Close") } })
+        }
         pendingAction?.let { action ->
             AlertDialog(onDismissRequest = { pendingAction = null }, title = { Text(action.title) },
                 text = { Text("Run in ${project.name}? Alter will record the result in Activity.") },
@@ -288,7 +378,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     pendingAction = null
                     attempt {
                         val origin = commandDraft
-                        val id = if (origin != null) store.addMessage(threadId, "user", origin) else null
+                        val id = if (origin != null) store.addMessage(threadId, "user", origin) else proposalThread
                         if (id != null) {
                             drafts.remove(threadId); threadId = id; prompt = ""
                             messages = store.messages(id); threads = store.threads()
@@ -296,9 +386,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                         generation = scope.launch {
                             try {
                                 val run = catalog.beginRun(project.id, action)
-                                val result = catalog.executeRun(run, action)
+                                val result = catalog.executeRun(run, action, store.setting("figmaEnabled").toBoolean(), pluginGrants[action.plugin])
                                 if (id != null) {
-                                    store.addMessage(id, "assistant", result)
+                                    store.addMessage(id, "action", result)
                                     messages = store.messages(id); threads = store.threads()
                                 }
                             } finally { generation = null }
@@ -319,7 +409,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     if (destination == Destination.Chat) openThread(null)
                     else draft = AlterCard(type = if (destination == Destination.Upcoming) "upcoming" else "note", rawInput = "", processedContent = "")
                     true
-                } else false
+                } else if (it.type == KeyEventType.KeyDown && it.isCtrlPressed && it.key == Key.K &&
+                    generation == null && modelWork == null && !speaking) { palette = true; true } else false
             }) {
                 val compact = maxWidth < 850.dp
                 val wide = maxWidth >= 1160.dp
@@ -353,6 +444,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 Box(Modifier.width(245.dp).height(365.dp)) { sidebarContent() }
                             }
                         }
+                        if (canSwitch) WorkspaceButton(AlterIcons.Search, "Commands (Ctrl+K)") { palette = true }
                         ProjectPicker(project, catalog, canSwitch && prompt.isBlank(), selectProject)
                         Text(settings ?: if (destination == Destination.Chat) selectedThread?.title ?: "New chat"
                             else destination.title, Modifier.weight(1f).padding(horizontal = 14.dp), fontSize = 14.sp,
@@ -444,13 +536,35 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 Text("The included CPU engine works on compatible PCs. For RTX 4050, select a compatible CUDA llama-server.exe with its DLLs beside it.",
                                     style = MaterialTheme.typography.bodySmall, color = colors.onSurface.copy(alpha = .55f))
                                 var keyInput by remember { mutableStateOf("") }
-                                var cloudModel by remember { mutableStateOf("gpt-4.1-mini") }
+                                var cloudModel by remember { mutableStateOf(store.setting("openAiModel", "gpt-4.1-mini")) }
+                                var saveKey by remember { mutableStateOf(false) }
                                 Text("OpenAI API", style = MaterialTheme.typography.titleMedium)
-                                Text("When selected, sending a message sends Alter’s instructions, project instructions and up to 20 messages from the open conversation to OpenAI. Your key stays in memory for this session.", style = MaterialTheme.typography.bodySmall)
+                                Text("When selected, sending a message sends Alter’s instructions, project instructions and up to 20 messages from the open conversation to OpenAI. Keys stay in memory unless you choose Windows Credential Manager.", style = MaterialTheme.typography.bodySmall)
                                 OutlinedTextField(keyInput, { keyInput = it.trim() }, singleLine = true, label = { Text("OpenAI API key") },
                                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
                                 OutlinedTextField(cloudModel, { cloudModel = it.trim() }, singleLine = true, label = { Text("Chat Completions model ID") })
-                                TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = {
+                                if (WindowsIntegration.available) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Checkbox(saveKey, { saveKey = it })
+                                        Text("Save this project’s key in Windows Credential Manager")
+                                    }
+                                    if (store.setting("savedOpenAiKey").toBoolean()) Row {
+                                        TextButton(enabled = canSwitch, onClick = { attempt {
+                                            keyInput = WindowsIntegration.credential("load", project.id)
+                                            modelStatus = "Saved key loaded. Select Use OpenAI for chat."
+                                        } }) { Text("Load saved key") }
+                                        TextButton(onClick = { attempt {
+                                            WindowsIntegration.credential("forget", project.id)
+                                            store.setting("savedOpenAiKey", "false", true); keyInput = ""; cloud = null; saveKey = false
+                                        } }) { Text("Forget saved key") }
+                                    }
+                                }
+                                TextButton(enabled = canSwitch && keyInput.isNotEmpty() && cloudModel.isNotBlank(), onClick = { attempt {
+                                    if (saveKey && WindowsIntegration.available) {
+                                        WindowsIntegration.credential("save", project.id, keyInput)
+                                        store.setting("savedOpenAiKey", "true", true)
+                                    }
+                                    store.setting("openAiModel", cloudModel, true)
                                     importedModel = null
                                     native.stop()
                                     activeModel = null
@@ -458,7 +572,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                     cloud = OpenAiSession(keyInput, cloudModel)
                                     keyInput = ""
                                     modelStatus = "OpenAI selected for chat."
-                                }) { Text("Use OpenAI for chat") }
+                                } }) { Text("Use OpenAI for chat") }
                                 if (cloud != null) TextButton(enabled = canSwitch, onClick = {
                                     cloud = null
                                     keyInput = ""
@@ -541,6 +655,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 if (modelWork != null) TextButton(onClick = { modelWork?.cancel() }) { Text("Cancel download / startup") }
                                 if (activeModel != null || importedModel != null) TextButton(enabled = canSwitch, onClick = { native.stop(); activeModel = null; importedModel = null; modelStatus = "Local model stopped." }) { Text("Release model") }
                             }
+                            "Skills" -> ProjectSkillsPanel(store, projectSkills) { projectSkills = store.projectSkills() }
+                            "Plugins" -> PluginPanel(store, pluginGrants, { settings = "Actions & schedules" })
                             "Actions & schedules" -> {
                                 if (trayAvailable) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(keepInTray, onCheckedChange = setKeepInTray)
@@ -548,7 +664,14 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 }
                                 ActivityPanel(catalog, store, project, { reviewAction(it, null) }, canSwitch)
                             }
-                            "Voice & files" -> Text("Tap Mic in Alter AI to record, then Stop mic to transcribe with a downloaded Whisper model. Review the transcript before sending. File attachment, retrieval and system hotkeys need later Windows adapters.")
+                            "Voice & files" -> {
+                                Text("Dictation", style = MaterialTheme.typography.headlineSmall)
+                                Text("Choose a Whisper model in AI models. Tap the microphone in chat to record, then stop to review the transcript.")
+                                if (WindowsIntegration.available) Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(shortcut, { shortcut = it; store.setting("voiceShortcut", it.toString(), true) }, enabled = !speaking)
+                                    Text("Hold Ctrl + Alt + Space anywhere to dictate into Alter")
+                                }
+                            }
                             "Backup & account" -> AccountPanel(account, changeAccount)
                             "About" -> {
                                 Text("About Alter", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
@@ -572,28 +695,14 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                             ChatPane(messages, prompt, { prompt = it.take(16000) },
                                 modelLabel, installed,
                                 modelWork != null, speaking, generation != null,
-                                if (speaking || modelWork != null) modelStatus else "",
+                                projectSkills, { skill ->
+                                    val combined = listOf(skill.instructions, prompt).filter(String::isNotBlank).joinToString("\n\n")
+                                    if (combined.length <= 16000) prompt = combined else error = "Shorten the draft before adding this skill."
+                                }, if (speaking || modelWork != null) modelStatus else "",
                                 { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, { type ->
                                     draft = AlterCard(type = type, rawInput = if (type == "note") "" else prompt, processedContent = prompt)
                                 }, {
-                                if (!recorder.recording) attempt {
-                                    val chosen = models.firstOrNull { it.id == store.setting("voiceModel") }
-                                        ?: error("Download and select a speech model in AI models first.")
-                                    require(installed[chosen] == true) { "Selected speech model is missing." }
-                                    recorder.start(); speaking = true; modelStatus = "Recording… Tap Stop when finished."
-                                } else {
-                                    speaking = false
-                                    val chosen = models.first { it.id == store.setting("voiceModel") }
-                                    modelWork = scope.launch {
-                                        modelStatus = "Transcribing locally…"
-                                        try {
-                                            val transcript = recorder.stopAndTranscribe(chosen)
-                                            prompt = listOf(prompt.trim(), transcript).filter(String::isNotBlank).joinToString(" ")
-                                            modelStatus = "Transcript ready. Review it before sending."
-                                        } catch (e: Exception) { error = e.message ?: "Transcription failed." }
-                                        finally { modelWork = null }
-                                    }
-                                }
+                                toggleMic()
                             }, ::send, { generation?.cancel() })
                         }
                     } else if (destination == Destination.Home) {

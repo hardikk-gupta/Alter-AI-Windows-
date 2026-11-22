@@ -12,7 +12,7 @@ $files = @()
 while ($record = $view.Fetch()) { $files += $record.StringData(1) }
 $view.Close()
 
-foreach ($required in @("llama-server.exe", "whisper-cli.exe")) {
+foreach ($required in @("llama-server.exe", "whisper-cli.exe", "alter-windows.exe")) {
     if (-not ($files | Where-Object { $_ -match "(^|\|)$([regex]::Escape($required))$" })) {
         throw "The installer does not contain $required."
     }

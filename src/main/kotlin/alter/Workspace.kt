@@ -26,7 +26,7 @@ internal enum class Destination(val title: String, val icon: ImageVector) {
     Home("Home", AlterIcons.Home), Chat("Alter AI", AlterIcons.Chat), Memories("Memories", AlterIcons.Memories),
     Upcoming("Upcoming", AlterIcons.Calendar), Notes("Notes", AlterIcons.FileText)
 }
-internal val settingsPages = listOf("Appearance", "AI models", "Voice & files", "Actions & schedules", "Backup & account", "About")
+internal val settingsPages = listOf("Appearance", "AI models", "Voice & files", "Actions & schedules", "Plugins", "Skills", "Backup & account", "About")
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

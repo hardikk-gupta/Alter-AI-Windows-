@@ -17,6 +17,34 @@ import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
 // Only a user-started loopback runtime is supported. No remote endpoint or cloud fallback.
+internal data class ModelTurn(val text: String = "", val proposal: DesktopAction? = null)
+
+internal fun JSONObject.offerTools(actions: List<DesktopAction>): JSONObject {
+    if (actions.isEmpty()) return this
+    val tools = JSONArray()
+    for (action in actions) {
+        val schema = JSONObject().put("type", "object").put("properties", JSONObject()).put("additionalProperties", false)
+        val function = JSONObject().put("name", action.name).put("description", action.title).put("parameters", schema)
+        tools.put(JSONObject().put("type", "function").put("function", function))
+    }
+    return put("tools", tools)
+}
+
+internal fun parseTurn(body: String, actions: List<DesktopAction>): ModelTurn {
+    val message = JSONObject(body).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+    message.optJSONArray("tool_calls")?.takeIf { it.length() > 0 }?.let { calls ->
+        require(calls.length() == 1) { "Ask for one action at a time." }
+        val function = calls.getJSONObject(0).getJSONObject("function")
+        val proposal = actions.singleOrNull { it.name == function.getString("name") }
+        require(proposal != null && JSONObject(function.getString("arguments")).isEmpty) { "The model proposed an unavailable action or invalid arguments." }
+        return ModelTurn(proposal = proposal)
+    }
+    val text = if (message.isNull("content")) "" else message.getString("content").trim()
+    val final = text.replace(Regex("(?is)<think>.*?</think>"), "").substringBefore("<think>").trim()
+    check(final.isNotBlank()) { "The model returned no final answer. Try a compatible chat model." }
+    return ModelTurn(text = final)
+}
+
 class LocalChat(private val port: Int) {
     init { require(port in 1024..65535) { "Use a local server port from 1024 to 65535." } }
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5))
@@ -45,22 +73,20 @@ class LocalChat(private val port: Int) {
     }
 
     suspend fun reply(history: List<Pair<String, String>>, model: String? = null, projectInstructions: String = ""): String {
-        val messages = chatMessages(history, projectInstructions)
+        return turn(history, model, projectInstructions, emptyList()).text
+    }
+
+    internal suspend fun turn(history: List<Pair<String, String>>, model: String?, projectInstructions: String, actions: List<DesktopAction>): ModelTurn {
+        val messages = chatMessages(history, projectInstructions, actions.isNotEmpty())
         val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$port/v1/chat/completions"))
             .timeout(Duration.ofMinutes(2)).header("Content-Type", "application/json")
             .POST(HttpRequest.BodyPublishers.ofString(JSONObject().put("model", model).put("messages", messages)
-                .put("stream", false).put("max_tokens", 512).put("temperature", .3)
+                .offerTools(actions).put("stream", false).put("max_tokens", 512).put("temperature", .3)
                 .put("chat_template_kwargs", JSONObject().put("enable_thinking", false)).toString())).build()
         val response = client.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
         check(response.statusCode() == 200) { "Local model returned HTTP ${response.statusCode()}. Check the running model." }
         require(response.body().length <= 1_000_000) { "Local model response was too large." }
-        val text = JSONObject(response.body()).getJSONArray("choices").getJSONObject(0)
-            .getJSONObject("message").optString("content").trim()
-        // Never display an unfinished reasoning channel or persist it as a final answer.
-        val final = text.replace(Regex("(?is)<think>.*?</think>"), "")
-            .substringBefore("<think>").trim()
-        check(final.isNotBlank()) { "The local model returned no final answer. Try a compatible chat model." }
-        return final
+        return parseTurn(response.body(), actions)
     }
 }
 
@@ -81,13 +107,13 @@ data class RuntimeModel(val runtime: DesktopRuntime, val name: String) {
     val label get() = "$name · ${runtime.title}"
 }
 
-private fun chatMessages(history: List<Pair<String, String>>, projectInstructions: String): JSONArray {
+private fun chatMessages(history: List<Pair<String, String>>, projectInstructions: String, toolsEnabled: Boolean): JSONArray {
     val instructions = LocalChat::class.java.getResourceAsStream("/ALTER_INSTRUCTIONS.md")!!.bufferedReader().use { it.readText() }
     val messages = JSONArray().put(JSONObject().put("role", "system").put("content", instructions +
-        "\nDesktop tools and web research are unavailable in this build. Never claim to save or execute actions."))
+        if (toolsEnabled) "\nPropose a listed function only when requested. Alter previews each action for user confirmation. Never claim it ran." else "\nNo model tools are enabled. Never claim to save or execute actions."))
     if (projectInstructions.isNotBlank()) messages.put(JSONObject().put("role", "user")
         .put("content", "My instructions for this project: $projectInstructions"))
-    history.takeLast(20).forEach { (sender, text) ->
+    history.filter { it.first in setOf("user", "assistant") }.takeLast(20).forEach { (sender, text) ->
         messages.put(JSONObject().put("role", sender).put("content", text.take(16000)))
     }
     return messages
@@ -95,17 +121,19 @@ private fun chatMessages(history: List<Pair<String, String>>, projectInstruction
 
 class OpenAiSession(private val apiKey: String, val model: String) {
     suspend fun reply(history: List<Pair<String, String>>, projectInstructions: String = ""): String {
-        val body = JSONObject().put("model", model).put("messages", chatMessages(history, projectInstructions)).put("max_completion_tokens", 512)
+        return turn(history, projectInstructions, emptyList()).text
+    }
+
+    internal suspend fun turn(history: List<Pair<String, String>>, projectInstructions: String, actions: List<DesktopAction>): ModelTurn {
+        val body = JSONObject().put("model", model).put("messages", chatMessages(history, projectInstructions, actions.isNotEmpty()))
+            .offerTools(actions).put("max_completion_tokens", 512)
         val request = HttpRequest.newBuilder(URI("https://api.openai.com/v1/chat/completions"))
             .timeout(Duration.ofMinutes(2)).header("Content-Type", "application/json")
             .header("Authorization", "Bearer $apiKey")
             .POST(HttpRequest.BodyPublishers.ofString(body.toString())).build()
         val response = client.sendAsync(request, HttpResponse.BodyHandlers.ofString()).await()
         check(response.statusCode() == 200) { "OpenAI returned HTTP ${response.statusCode()}. Check your key, model and billing." }
-        val content = JSONObject(response.body()).getJSONArray("choices").getJSONObject(0)
-            .getJSONObject("message").optString("content").trim()
-        check(content.isNotEmpty()) { "OpenAI returned an empty response." }
-        return content
+        return parseTurn(response.body(), actions)
     }
 
     private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10))

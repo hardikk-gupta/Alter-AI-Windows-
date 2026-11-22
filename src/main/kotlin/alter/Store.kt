@@ -184,7 +184,7 @@ class Store(private val directory: Path) : AutoCloseable {
     }
 
     @Synchronized fun addMessage(threadId: Long?, sender: String, text: String): Long {
-        require(sender in setOf("user", "assistant"))
+        require(sender in setOf("user", "assistant", "action"))
         return db.prepareStatement("""INSERT INTO messages(threadId,sender,text,timestamp)
             VALUES(coalesce(?,(SELECT coalesce(max(threadId),0)+1 FROM messages)),?,?,?) RETURNING threadId""").use { s ->
             s.setObject(1, threadId); s.setString(2, sender); s.setString(3, text); s.setLong(4, System.currentTimeMillis())

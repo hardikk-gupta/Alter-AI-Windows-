@@ -42,6 +42,21 @@ jobs:
         with:
           path: build/package-resources/windows/native
           key: ${{ steps.engines.outputs.cache-primary-key }}
+      - name: Build and test Windows shortcut and credential helper
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          cmake -S packaging/windows-helper -B build/windows-helper
+          if ($LASTEXITCODE) { throw "Could not configure helper" }
+          cmake --build build/windows-helper --config Release
+          if ($LASTEXITCODE) { throw "Could not build helper" }
+          $helper = "build/windows-helper/Release/alter-windows.exe"
+          $fixture = "alter-test-key"
+          $fixture | & $helper save 9999
+          if ($LASTEXITCODE -or ((& $helper load 9999).Trim() -ne $fixture)) { throw "Credential round-trip failed" }
+          & $helper forget 9999
+          if ($LASTEXITCODE) { throw "Could not remove test credential" }
+          Copy-Item $helper build/package-resources/windows/native/
       - name: Package and verify Windows installer
         if: runner.os == 'Windows'
         shell: pwsh
