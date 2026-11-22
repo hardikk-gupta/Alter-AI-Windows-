@@ -3,6 +3,7 @@ package alter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
+import java.nio.file.Path
 import javax.sound.sampled.AudioFileFormat
 import javax.sound.sampled.AudioFormat
 import javax.sound.sampled.AudioSystem
@@ -48,29 +49,33 @@ class VoiceRecorder : AutoCloseable {
             require(pcm.size > 4096) { "No speech was recorded. Check your microphone and try again." }
             AudioSystem.write(javax.sound.sampled.AudioInputStream(ByteArrayInputStream(pcm), format,
                 (pcm.size / format.frameSize).toLong()), AudioFileFormat.Type.WAVE, file.toFile())
-            require(Files.size(file) > 4096) { "No speech was recorded. Check your microphone and try again." }
-            require(verified(model)) { "Download and verify a speech model first." }
-            val exe = nativeProgram("whisper-cli")
-            val output = Files.createTempFile("alter-transcript-", "")
-            Files.deleteIfExists(output)
-            try {
-                val process = ProcessBuilder(exe.toString(), "-m", modelPath(model).toString(),
-                    "-f", file.toString(), "-otxt", "-of", output.toString(), "-np")
-                    .directory(exe.parent.toFile()).redirectErrorStream(true)
-                    .redirectOutput(defaultDataDirectory().resolve("speech-runtime.log").toFile()).start()
-                if (!process.waitFor(3, TimeUnit.MINUTES)) { process.destroyForcibly(); error("Speech transcription timed out.") }
-                check(process.exitValue() == 0) { "Speech model failed. Check speech-runtime.log in Alter's data folder." }
-                val transcript = Files.readString(output.resolveSibling(output.fileName.toString() + ".txt")).trim()
-                check(transcript.isNotBlank()) { "No speech detected. Tap the microphone to try again." }
-                transcript
-            } finally {
-                Files.deleteIfExists(output)
-                Files.deleteIfExists(output.resolveSibling(output.fileName.toString() + ".txt"))
-            }
+            transcribeWave(file, model)
         } finally {
             Files.deleteIfExists(file); wav = null; thread = null
         }
     }
 
     override fun close() { line?.stop(); line?.close(); line = null; wav?.let(Files::deleteIfExists); wav = null }
+}
+
+internal fun transcribeWave(file: Path, model: ModelSpec): String {
+    require(Files.size(file) > 4096) { "No speech was recorded. Check your microphone and try again." }
+    require(verified(model)) { "Download and verify a speech model first." }
+    val exe = nativeProgram("whisper-cli")
+    val output = Files.createTempFile("alter-transcript-", "")
+    Files.deleteIfExists(output)
+    try {
+        val process = ProcessBuilder(exe.toString(), "-m", modelPath(model).toString(),
+            "-f", file.toString(), "-otxt", "-of", output.toString(), "-np")
+            .directory(exe.parent.toFile()).redirectErrorStream(true)
+            .redirectOutput(defaultDataDirectory().resolve("speech-runtime.log").toFile()).start()
+        if (!process.waitFor(3, TimeUnit.MINUTES)) { process.destroyForcibly(); error("Speech transcription timed out.") }
+        check(process.exitValue() == 0) { "Speech model failed. Check speech-runtime.log in Alter's data folder." }
+        val transcript = Files.readString(output.resolveSibling(output.fileName.toString() + ".txt")).trim()
+        check(transcript.isNotBlank()) { "No speech detected. Tap the microphone to try again." }
+        return transcript
+    } finally {
+        Files.deleteIfExists(output)
+        Files.deleteIfExists(output.resolveSibling(output.fileName.toString() + ".txt"))
+    }
 }

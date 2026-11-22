@@ -4,6 +4,7 @@ import com.example.data.AlterCard
 import java.nio.file.Files
 import java.nio.file.Path
 import java.sql.DriverManager
+import java.time.*
 
 fun defaultDataDirectory(): Path = System.getProperty("alter.dataDir")?.let(Path::of)
     ?: System.getenv("LOCALAPPDATA")?.let { Path.of(it, "Alter") }
@@ -11,7 +12,7 @@ fun defaultDataDirectory(): Path = System.getProperty("alter.dataDir")?.let(Path
 
 data class ChatThread(val id: Long, val title: String, val favorite: Boolean, val archived: Boolean)
 
-class Store(directory: Path) : AutoCloseable {
+class Store(private val directory: Path) : AutoCloseable {
     private val db = run {
         Files.createDirectories(directory)
         DriverManager.getConnection("jdbc:sqlite:${directory.resolve("alter-desktop.db")}")
@@ -26,12 +27,31 @@ class Store(directory: Path) : AutoCloseable {
                 id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, rawInput TEXT NOT NULL,
                 processedContent TEXT NOT NULL, timestamp INTEGER NOT NULL,
                 isDeleted INTEGER NOT NULL DEFAULT 0, deletedTimestamp INTEGER)""")
+            val hasSource = s.executeQuery("PRAGMA table_info(cards)").use { rows ->
+                var found = false
+                while (rows.next()) if (rows.getString("name") == "source") found = true
+                found
+            }
+            if (!hasSource) s.execute("ALTER TABLE cards ADD COLUMN source TEXT NOT NULL DEFAULT 'Local entry'")
             s.execute("CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)")
             s.execute("""CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, sender TEXT NOT NULL, text TEXT NOT NULL,
                 timestamp INTEGER NOT NULL)""")
             s.execute("""CREATE TABLE IF NOT EXISTS thread_options (
                 threadId INTEGER PRIMARY KEY, favorite INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)""")
+            s.execute("""CREATE TABLE IF NOT EXISTS projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, instructions TEXT NOT NULL)""")
+            s.execute("CREATE TABLE IF NOT EXISTS project_visits (project INTEGER UNIQUE NOT NULL)")
+            s.execute("""CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, project INTEGER NOT NULL,
+                action TEXT NOT NULL, argument TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '')""")
+            val activityColumns = s.executeQuery("PRAGMA table_info(activity)").use { rows ->
+                buildSet { while (rows.next()) add(rows.getString("name")) }
+            }
+            if ("thread" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN thread INTEGER")
+            if ("started" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN started INTEGER NOT NULL DEFAULT 0")
+            if ("ownerPid" !in activityColumns) s.execute("ALTER TABLE activity ADD COLUMN ownerPid INTEGER NOT NULL DEFAULT 0")
+            s.execute("""CREATE TABLE IF NOT EXISTS schedules (project INTEGER PRIMARY KEY, repo TEXT NOT NULL, time TEXT NOT NULL,
+                zone TEXT NOT NULL, next INTEGER NOT NULL, enabled INTEGER NOT NULL)""")
             if (version < 2) {
                 db.autoCommit = false
                 try {
@@ -46,10 +66,139 @@ class Store(directory: Path) : AutoCloseable {
             }
         }
     }
+    @Synchronized fun projects(): List<Project> = db.createStatement().use { statement ->
+        statement.executeQuery("SELECT id,name,instructions FROM projects ORDER BY name COLLATE NOCASE").use { rows ->
+            buildList { while (rows.next()) add(Project(rows.getLong(1), rows.getString(2), rows.getString(3))) }
+        }
+    }
+
+    @Synchronized fun selectWorkspace(project: Project) {
+        db.autoCommit = false
+        try {
+            setting("activeProject", project.id.toString(), true)
+            db.prepareStatement("INSERT OR REPLACE INTO project_visits(project) VALUES(?)").use {
+                it.setLong(1, project.id); it.executeUpdate()
+            }
+            db.commit()
+        } catch (e: Exception) { db.rollback(); throw e }
+        finally { db.autoCommit = true }
+    }
+
+    @Synchronized fun recentProjects(current: Long): List<Project> = db.prepareStatement(
+        "SELECT p.id,p.name,p.instructions FROM project_visits v JOIN projects p ON p.id=v.project WHERE p.id<>? ORDER BY v.rowid DESC LIMIT 3"
+    ).use { statement ->
+        statement.setLong(1, current)
+        statement.executeQuery().use { rows ->
+            buildList { while (rows.next()) add(Project(rows.getLong(1), rows.getString(2), rows.getString(3))) }
+        }
+    }
+
+    @Synchronized fun createProject(name: String, instructions: String): Project {
+        val title = name.trim()
+        require(title.length in 1..80 && instructions.length <= 2000) { "Check the project name and instructions." }
+        require(!title.equals(personalWorkspace.name, true)) { "Choose another name for this project." }
+        return db.prepareStatement("INSERT INTO projects(name,instructions) VALUES(?,?) ON CONFLICT DO NOTHING RETURNING id").use { statement ->
+            statement.setString(1, title); statement.setString(2, instructions)
+            statement.executeQuery().use { rows ->
+                require(rows.next()) { "A project with this name already exists." }
+                Project(rows.getLong(1), title, instructions)
+            }
+        }
+    }
+
+    @Synchronized fun updateProject(project: Project): Project {
+        val name = project.name.trim()
+        require(project.id > 0 && name.length in 1..80 && !name.equals(personalWorkspace.name, true) && project.instructions.length <= 2000)
+        db.prepareStatement("UPDATE OR IGNORE projects SET name=?, instructions=? WHERE id=?").use { statement ->
+            statement.setString(1, name); statement.setString(2, project.instructions); statement.setLong(3, project.id)
+            require(statement.executeUpdate() == 1) { "Choose a unique name for this project." }
+        }
+        return project.copy(name = name)
+    }
+
+    fun openProject(project: Project): Store {
+        require(project.id > 0 && projects().any { it.id == project.id })
+        return Store(directory.resolve("projects").resolve(project.id.toString()))
+    }
+
+    @Synchronized fun recoverInterruptedRuns() {
+        val running = db.createStatement().use { sql ->
+            sql.executeQuery("SELECT id,ownerPid,started FROM activity WHERE state='running'").use { rows ->
+                buildList { while (rows.next()) add(Triple(rows.getLong(1), rows.getLong(2), rows.getLong(3))) }
+            }
+        }
+        for ((id, pid, started) in running) {
+            val owner = if (pid > 0) ProcessHandle.of(pid).orElse(null) else null
+            if (owner == null || !owner.isAlive || owner.info().startInstant().map { it.toEpochMilli() > started }.orElse(false))
+                finishRun(id, "interrupted", "Alter closed before it received a result.")
+        }
+    }
+
+    @Synchronized internal fun beginRun(project: Long, action: DesktopAction, thread: Long? = null, deferred: Boolean = false): Long = db.prepareStatement(
+        "INSERT INTO activity(project,action,argument,thread,started,ownerPid,state) VALUES(?,?,?,?,?,?,?) RETURNING id"
+    ).use { s ->
+        s.setLong(1, project); s.setString(2, action.name); s.setString(3, action.argument)
+        s.setObject(4, thread); s.setLong(5, System.currentTimeMillis()); s.setLong(6, ProcessHandle.current().pid())
+        s.setString(7, if (deferred) "awaiting approval" else "running")
+        s.executeQuery().use { it.next(); it.getLong(1) }
+    }
+
+    @Synchronized internal fun resolveApproval(project: Long, id: Long, approve: Boolean): Boolean =
+        db.prepareStatement("UPDATE activity SET state=?, ownerPid=?, started=? WHERE project=? AND id=? AND state='awaiting approval'").use {
+            it.setString(1, if (approve) "running" else "dismissed"); it.setLong(2, ProcessHandle.current().pid())
+            it.setLong(3, System.currentTimeMillis()); it.setLong(4, project); it.setLong(5, id)
+            it.executeUpdate() == 1
+        }
+
+    @Synchronized internal fun finishRun(id: Long, state: String, result: String) {
+        db.prepareStatement("UPDATE activity SET state=?,result=? WHERE id=? AND state='running'").use { s ->
+            s.setString(1, state); s.setString(2, result); s.setLong(3, id); s.executeUpdate()
+        }
+    }
+
+    @Synchronized internal fun activity(project: Long): List<RunEntry> = db.prepareStatement(
+        "SELECT * FROM activity WHERE project=? ORDER BY (state='awaiting approval') DESC, id DESC LIMIT 50"
+    ).use { s ->
+        s.setLong(1, project)
+        s.executeQuery().use { r -> buildList { while (r.next()) add(RunEntry(r.getLong("id"), project,
+            DesktopAction(r.getString("action"), r.getString("argument")), r.getString("state"), r.getString("result"), r.getObject("thread")?.let { r.getLong("thread") }, r.getLong("started"))) } }
+    }
+
+    @Synchronized internal fun saveSchedule(schedule: BriefSchedule) {
+        require(validRepo(schedule.repo))
+        db.prepareStatement("INSERT OR REPLACE INTO schedules VALUES(?,?,?,?,?,?)").use { s ->
+            s.setLong(1,schedule.project); s.setString(2,schedule.repo); s.setString(3,schedule.time.toString())
+            s.setString(4,schedule.zone.id); s.setLong(5,schedule.next.toEpochMilli()); s.setBoolean(6,schedule.enabled); s.executeUpdate()
+        }
+    }
+
+    @Synchronized internal fun schedules(): List<BriefSchedule> = db.createStatement().use { s ->
+        s.executeQuery("SELECT * FROM schedules").use { r -> buildList {
+            while(r.next()) add(BriefSchedule(r.getLong("project"),r.getString("repo"),LocalTime.parse(r.getString("time")),
+                ZoneId.of(r.getString("zone")),Instant.ofEpochMilli(r.getLong("next")),r.getBoolean("enabled")))
+        } }
+    }
+
+    @Synchronized internal fun claimSchedule(schedule: BriefSchedule, now: Instant): Long? {
+        if (!schedule.enabled || schedule.next > now) return null
+        db.autoCommit = false
+        try {
+            val count = db.prepareStatement("UPDATE schedules SET next=? WHERE project=? AND next=? AND enabled=1 AND repo=? AND zone=? AND time=?").use { s ->
+                s.setLong(1,nextWeekday(now,schedule.time,schedule.zone).toEpochMilli()); s.setLong(2,schedule.project)
+                s.setLong(3,schedule.next.toEpochMilli()); s.setString(4,schedule.repo); s.setString(5,schedule.zone.id)
+                s.setString(6,schedule.time.toString()); s.executeUpdate()
+            }
+            val run = if (count == 1) beginRun(schedule.project, DesktopAction("repo_brief",schedule.repo)) else null
+            db.commit()
+            return run
+        } catch (e: Exception) { db.rollback(); throw e }
+        finally { db.autoCommit = true }
+    }
+
     @Synchronized fun cards(): List<AlterCard> = db.createStatement().use { s ->
         s.executeQuery("SELECT * FROM cards WHERE isDeleted=0 ORDER BY timestamp DESC, id DESC").use { r ->
             buildList { while (r.next()) add(AlterCard(r.getLong("id"), r.getString("type"),
-                r.getString("rawInput"), r.getString("processedContent"), r.getLong("timestamp"))) }
+                r.getString("rawInput"), r.getString("processedContent"), r.getLong("timestamp"), source = r.getString("source"))) }
         }
     }
     @Synchronized fun save(card: AlterCard) {
@@ -57,10 +206,10 @@ class Store(directory: Path) : AutoCloseable {
         require(card.rawInput.isNotBlank() || card.processedContent.isNotBlank()) { "Write something first." }
         require(card.rawInput.length <= 100_000 && card.processedContent.length <= 100_000) { "This entry is too long." }
         if (card.id == 0L) db.prepareStatement(
-            "INSERT INTO cards(type,rawInput,processedContent,timestamp) VALUES(?,?,?,?)"
+            "INSERT INTO cards(type,rawInput,processedContent,timestamp,source) VALUES(?,?,?,?,?)"
         ).use { s ->
             s.setString(1, card.type); s.setString(2, card.rawInput); s.setString(3, card.processedContent)
-            s.setLong(4, card.timestamp); s.executeUpdate()
+            s.setLong(4, card.timestamp); s.setString(5, card.source); s.executeUpdate()
         } else db.prepareStatement("UPDATE cards SET rawInput=?,processedContent=? WHERE id=? AND isDeleted=0").use { s ->
             s.setString(1, card.rawInput); s.setString(2, card.processedContent); s.setLong(3, card.id)
             check(s.executeUpdate() == 1) { "This entry has changed. Reopen it before saving." }
@@ -100,10 +249,19 @@ class Store(directory: Path) : AutoCloseable {
         s.executeQuery().use { r -> buildList { while (r.next()) add(r.getString(1) to r.getString(2)) } }
     }
 
+    @Synchronized fun appendActionResult(thread: Long, result: String) {
+        db.prepareStatement("""INSERT INTO messages(threadId,sender,text,timestamp)
+            SELECT ?, 'action', ?, ? WHERE EXISTS (SELECT 1 FROM messages WHERE threadId=?)""").use {
+            it.setLong(1, thread); it.setString(2, result); it.setLong(3, System.currentTimeMillis())
+            it.setLong(4, thread); it.executeUpdate()
+        }
+    }
+
     @Synchronized fun addMessage(threadId: Long?, sender: String, text: String): Long {
-        require(sender in setOf("user", "assistant"))
+        require(sender in setOf("user", "assistant", "action"))
         return db.prepareStatement("""INSERT INTO messages(threadId,sender,text,timestamp)
-            VALUES(coalesce(?,(SELECT coalesce(max(threadId),0)+1 FROM messages)),?,?,?) RETURNING threadId""").use { s ->
+            VALUES(coalesce(?,1+max(coalesce((SELECT seq FROM sqlite_sequence WHERE name='messages'),0),
+                coalesce((SELECT max(threadId) FROM messages),0))),?,?,?) RETURNING threadId""").use { s ->
             s.setObject(1, threadId); s.setString(2, sender); s.setString(3, text); s.setLong(4, System.currentTimeMillis())
             s.executeQuery().use { it.next(); it.getLong(1) }
         }

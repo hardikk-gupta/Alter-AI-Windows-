@@ -9,7 +9,7 @@ Canonical product reference: hardikk-gupta/ALTER-AI-code-base, merged main at `0
 | Area | Reference | Desktop boundary |
 | --- | --- | --- |
 | Notes/tasks | AlterData.kt, TaskText.kt, MemoryCards.kt | Independent SQLite schema; same primitive field names and checkbox rules; rich blocks/board objects still pending |
-| UI | Color.kt, Type.kt, Theme.kt, AdaptiveBottomNavigation.kt | Compose Desktop, Satoshi, original bottom destinations and envelope cards; desktop acceptance pending |
+| UI | Color.kt, Type.kt, Theme.kt, AdaptiveBottomNavigation.kt | Compose Desktop, Windows system typography, original bottom destinations and envelope cards; desktop acceptance pending |
 | River | ShoalSimulation.kt, KoiAsciiRenderer.kt | Pure simulation copied; Android graphics mapped to Java2D, fixed ASCII sampling retained |
 | Agent | ALTER_INSTRUCTIONS.md, AlterAgent.kt | Exact personality resource, local conversation only; validated tools/retrieval not yet ported |
 | Models | ModelCatalog.kt, local_models.json | Windows llama.cpp loopback provider; manual Windows GGUF installation instead of Android LiteRT binaries |
@@ -27,7 +27,7 @@ This is a desktop JVM target rather than a speculative shared-core rewrite. Java
 
 Schema version 2 stores local text/note/upcoming cards, soft deletion, theme/server-port preferences and separate persistent conversations with favorite/archive preferences. IDs are numeric, timestamps are epoch milliseconds, display uses the OS zone and Unicode remains intact. Unsupported database versions fail before schema writes. SQLite WAL/busy timeout are enabled. This is not an Android Room file or full archive implementation. Existing task parsing/completion is copied with provenance.
 
-Local chat sends only the last 20 conversation messages and the runtime instructions to `127.0.0.1`, with a 512-token output cap. Curated model files are fetched from immutable official revisions and verified by exact size and SHA-256 before a bundled CPU llama.cpp server starts. Voice uses explicit Java Sound recording and a bundled whisper.cpp CLI with a separately selected verified multilingual model. Transcription fills a prompt for review; it does not send automatically. Stop cancels the HTTP future; a failed/cancelled reply is not saved. The searchable sidebar selects a saved conversation. Cloud fallback and semantic retrieval are unavailable. Windows CI builds the native runtimes from pinned upstream commits. No model weights are bundled.
+Local chat sends only the last 20 conversation messages and the runtime instructions to `127.0.0.1`, with a 512-token output cap. Curated model files are fetched from immutable official revisions and verified by exact size and SHA-256 before a bundled CPU llama.cpp server starts. Voice uses explicit Java Sound recording and a bundled whisper.cpp CLI with a separately selected verified multilingual model. Transcription fills a prompt for review; it does not send automatically. Stop cancels the HTTP future; a failed/cancelled reply is not saved. The sidebar selects a saved conversation. Settings → Workspace can search conversation content. Cloud fallback and semantic retrieval are unavailable. Windows CI builds the native runtimes from pinned upstream commits. No model weights are bundled.
 
 Data at rest uses the user's OS account storage, without application encryption. Backups, synchronization, cloud credentials and installer signing are separate increments. Do not expose the local inference server to the LAN.
 

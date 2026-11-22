@@ -29,10 +29,16 @@ import com.example.ui.theme.*
 @Composable
 internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, update: (String) -> Unit,
     activeModel: String?, installed: Map<ModelSpec, Boolean>, busy: Boolean, speaking: Boolean, generating: Boolean,
-    status: String, choose: (ModelSpec) -> Unit, manage: () -> Unit, mic: () -> Unit, send: () -> Unit, stop: () -> Unit) {
+    addContext: () -> Unit, projectSkills: List<ProjectSkill>, useSkill: (ProjectSkill) -> Unit,
+    status: String, choose: (ModelSpec) -> Unit, manage: () -> Unit, capture: (String) -> Unit, mic: () -> Unit, send: () -> Unit, stop: () -> Unit) {
     val c = MaterialTheme.colorScheme
     val scroll = rememberLazyListState()
     val clipboard = LocalClipboardManager.current
+    val skills = remember {
+        val catalog = requireNotNull(com.example.agent.AgentSkills::class.java.getResourceAsStream("/agent_skills.json"))
+        catalog.bufferedReader().use { com.example.agent.AgentSkills(it.readText()).skills }
+    }
+    var skillsMenu by remember { mutableStateOf(false) }
     var modelMenu by remember { mutableStateOf(false) }
     LaunchedEffect(messages.size, generating) {
         if (messages.isNotEmpty()) scroll.scrollToItem(messages.lastIndex + if (generating) 1 else 0)
@@ -53,6 +59,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
                     Column(if (user) Modifier.fillMaxWidth(.78f).wrapContentWidth(Alignment.End)
                         .background(c.secondaryContainer, RoundedCornerShape(16.dp)).padding(horizontal = 15.dp, vertical = 10.dp)
                         else Modifier.fillMaxWidth()) {
+                        if (role == "action") Text("Action result", style = MaterialTheme.typography.labelLarge)
                         SelectionContainer { Text(text, style = MaterialTheme.typography.bodyLarge, lineHeight = 25.sp) }
                         if (!user) WorkspaceButton(AlterIcons.Copy, "Copy reply") { clipboard.setText(AnnotatedString(text)) }
                     }
@@ -64,6 +71,26 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
         Row(Modifier.widthIn(max = 810.dp).fillMaxWidth().background(c.secondaryContainer, RoundedCornerShape(24.dp))
             .border(1.dp, c.outline, RoundedCornerShape(24.dp)).padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                IconButton({ skillsMenu = true }, Modifier.size(32.dp), enabled = !busy && !speaking && !generating) {
+                    Icon(AlterIcons.Plus, "Capture with a skill", Modifier.size(16.dp))
+                }
+                DropdownMenu(skillsMenu, onDismissRequest = { skillsMenu = false }) {
+                    DropdownMenuItem(text = { Text("Add project context…") }, onClick = { skillsMenu = false; addContext() })
+                    projectSkills.filter { it.enabled }.forEach { skill ->
+                        DropdownMenuItem(text = { Text(skill.title) }, onClick = { skillsMenu = false; useSkill(skill) })
+                    }
+                    skills.forEach { skill ->
+                        val type = when (skill.id) {
+                            "approved-memory" -> "text"
+                            "stated-commitment" -> "upcoming"
+                            "organize-note" -> "note"
+                            else -> return@forEach
+                        }
+                        DropdownMenuItem(text = { Text(skill.title) }, onClick = { skillsMenu = false; capture(type) })
+                    }
+                }
+            }
             BasicTextField(prompt, update, Modifier.weight(1f).padding(horizontal = 10.dp).semantics { contentDescription = "Message Alter" }
                 .onPreviewKeyEvent {
                     if (it.type == KeyEventType.KeyDown && it.key == Key.Enter && !it.isShiftPressed) { send(); true } else false
@@ -74,7 +101,7 @@ internal fun ChatPane(messages: List<Pair<String,String>>, prompt: String, updat
             Box {
                 Row(Modifier.background(c.surface, CircleShape).clickable(enabled = !busy && !generating && !speaking) { modelMenu = true }
                     .padding(horizontal = 9.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(activeModel ?: "Model", fontSize = 12.sp)
+                    Text(activeModel ?: "Model", Modifier.widthIn(max = 150.dp), fontSize = 12.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Icon(AlterIcons.ChevronDown, "Choose text model", Modifier.padding(start = 4.dp).size(12.dp))
                 }
                 DropdownMenu(modelMenu, onDismissRequest = { modelMenu = false }) {

@@ -27,7 +27,6 @@ if [ ! -d /workspace/reference/ALTER-AI-code-base/.git ]; then
     https://github.com/hardikk-gupta/ALTER-AI-code-base.git /workspace/reference/ALTER-AI-code-base
 fi
 
-python3 scripts/setup_fonts.py
 source /workspace/setup/activate.sh
 ./gradlew test --console=plain
 git status --short --untracked-files=all

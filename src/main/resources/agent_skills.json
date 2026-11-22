@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "id": "approved-memory", "version": 1, "title": "Personal memory",
+      "description": "Remember explicitly requested facts and response preferences; keep them reviewable.",
+      "keywords": ["remember", "preference", "prefer", "yaad", "याद", "पसंद"],
+      "tools": ["remember", "preference"],
+      "steps": ["Save only the fact or preference the user explicitly asks to retain, not unrelated reference text.", "Reuse an existing identical memory instead of duplicating it. Preferences concern style; they never grant tools or override safety.", "Report the actual saved memory ID. Offer /memories for review and /forget followed by its ID for removal."]
+    },
+    {
+      "id": "stated-commitment", "version": 1, "title": "Tasks from commitments",
+      "description": "Keep the stated task and its date/time without inventing preparation work.",
+      "keywords": ["meeting", "remind", "task", "kal", "tomorrow", "बैठक", "कल"],
+      "tools": ["create_task"],
+      "steps": ["Copy the user's actual commitment. Do not add agenda, preparation, attendees or document tasks.", "Use only an explicitly supplied reminder time; ask when a clock is missing. A saved task is not proof that an alarm was scheduled.", "Report only the task and reminder outcomes confirmed by the executor."]
+    },
+    {
+      "id": "organize-note", "version": 1, "title": "Organize an idea",
+      "description": "Keep the user's ideas and source references when saving a note or canvas.",
+      "keywords": ["note", "idea", "canvas", "notes", "नोट", "विचार"],
+      "tools": ["create_note", "create_canvas"],
+      "steps": ["Preserve names, facts, numbers and the user's intent; distinguish evidence from suggestions.", "Use the existing note or canvas tool only when requested. Keep notes separate from canvas boards.", "Report the actual saved card ID, and do not claim unsupported actions were performed."]
+    }
+  ]
+}

@@ -125,12 +125,64 @@ class DesktopTest {
         }
         server.start()
         try {
-            val answer = LocalChat(server.address.port).reply(listOf("user" to "Hello"))
+            val answer = LocalChat(server.address.port).reply(listOf("user" to "Hello"), "chosen-model")
+            assertEquals("chosen-model", request!!.getString("model"))
             assertEquals("Hello Hardikk", answer)
             val messages = request!!.getJSONArray("messages")
             assertTrue(messages.getJSONObject(0).getString("content").contains("You are Alter"))
             assertEquals("Hello", messages.getJSONObject(1).getString("content"))
             assertFalse(request!!.getBoolean("stream"))
+        } finally { server.stop(0) }
+    }
+
+    @Test fun externalCatalogsKeepLocalModelNamesSeparate() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        val catalogs = mapOf("/api/tags" to """{"models":[{"name":"qwen"},{"name":"other:cloud"},{"name":"remote","remote_host":"elsewhere"}]}""",
+            "/v1/models" to """{"data":[{"id":"lm-model"}]}""")
+        catalogs.forEach { (path, json) -> server.createContext(path) { exchange ->
+            val bytes = json.toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        } }
+        server.start()
+        try {
+            val client = LocalChat(server.address.port)
+            assertEquals(listOf("qwen"), client.installedModels(DesktopRuntime.Ollama))
+            assertEquals(listOf("lm-model"), client.installedModels(DesktopRuntime.LmStudio))
+        } finally { server.stop(0) }
+    }
+
+    @Test fun localModelChecksRejectCloudAndEmbeddingModelsBeforeChat() = runBlocking {
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        var ollamaInfo = """{"capabilities":["completion","tools"]}"""
+        var legacy = false
+        var probes = 0
+        server.createContext("/") { exchange -> exchange.use {
+            val body = when (it.requestURI.path) {
+                "/api/show" -> ollamaInfo
+                "/api/v1/models" -> """{"models":[{"key":"vector","type":"embedding"}]}"""
+                "/v1/chat/completions" -> { probes++; """{"choices":[{"message":{"role":"assistant","content":"Hello"}}]}""" }
+                else -> "{}"
+            }
+            val bytes = body.toByteArray()
+            it.sendResponseHeaders(if (legacy && it.requestURI.path == "/api/v1/models") 404 else 200, bytes.size.toLong())
+            it.responseBody.write(bytes)
+        } }
+        try {
+            server.start()
+            val chat = LocalChat(server.address.port)
+            val qwen = RuntimeModel(DesktopRuntime.Ollama, "qwen")
+            assertEquals(true, chat.checkChatModel(qwen).supportsTools)
+            ollamaInfo = """{"remote_model":"cloud-model","capabilities":["completion"]}"""
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(qwen) }
+            ollamaInfo = """{"capabilities":["embedding"]}"""
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(qwen) }
+            assertFailsWith<IllegalArgumentException> { chat.checkChatModel(RuntimeModel(DesktopRuntime.LmStudio, "vector")) }
+            assertEquals(0,probes)
+            legacy = true
+            val older = RuntimeModel(DesktopRuntime.LmStudio, "local-chat")
+            assertEquals(older, chat.checkChatModel(older))
+            assertEquals(1,probes)
         } finally { server.stop(0) }
     }
 

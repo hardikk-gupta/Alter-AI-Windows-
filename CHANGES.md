@@ -1,5 +1,29 @@
 # Changes
 
+## 0.2.4 desktop preview
+
+Turning off global dictation now waits for Windows to release the shortcut.
+
+## 0.2.3 desktop preview
+
+Chat history search lives in Settings → Workspace.
+
+Windows installs the application under `%LOCALAPPDATA%\Alter Desktop`. Upgrading a legacy installation protects the existing workspace, downloaded models and project files under `%LOCALAPPDATA%\Alter`. Windows CI checks both Qwen sizes and transcribes a synthetic spoken command with Whisper Tiny and Base.
+
+## 0.2.2 desktop preview
+
+GitHub file editing creates a reviewed draft PR on a new branch. Skills can require plugins. Home shows deferred approvals and recent projects. Local model selection checks chat capabilities. Settings measures local engine load time, first reply latency and peak working set. Added Figma Cloud layer reads and Windows UI Automation controls for maximizing or restoring a selected window.
+
+## 0.2.1 desktop preview
+
+Moved project and command controls into Settings and placed Plugins in the chat sidebar. Windows uses its system UI font. The full-height sidebar shares one edge with its icon rail. Plugin setup and permissions open on Connect.
+
+## 0.2.0 desktop preview
+
+Added project skills, a command palette, confirmed model function calls, Figma Desktop MCP selection metadata, separate Spotify/Calendar/Drive grants, a Windows hold-to-dictate shortcut and opt-in Windows Credential Manager storage.
+
+Project workspaces isolate chat, notes and settings. Settings offers local GGUF loading, account setup status, activity history and weekday GitHub workflow briefs. The chat composer accepts reviewed repository and Spotify launch commands. The optional tray keeps scheduled briefs running while the window is closed.
+
 Reduced the rail and Alter mark, matched the navigation surface to Workspace details, and added a rail collapse button with a persistent toolbar restore control. Desktop icons use the Android rounded Hugeicons set with a chat bubble for conversations.
 
 ## Desktop palette correction
@@ -51,3 +75,7 @@ The first full Windows Qwen check reproduced an engine exit after file verificat
 - Pinned Gradle 8.14.3 and its wrapper checksum; verified JDK 21.0.13 and official Satoshi hashes in the cloud setup. Added Linux/Windows source-check CI and Windows application-image task. No installer has been published.
 - Validation in Linux cloud: `scripts/setup_cloud.sh` succeeded; `./gradlew test` passed **6 tests, 0 failures/skips**. Compose window started under an internal Xorg display and produced `build/screenshots/desktop.png`; visually checked Home, navigation and shared river. The run used Skiko's fallback rendering API because this virtual display has no GL context. Native Windows build/run, model throughput, device DPI/keyboard/mouse, microphone and installer tests are unrun.
 - Android notification-only GitHub linkage and complete Android↔Windows backup remain pending. No Android source changes or personal data were added.
+
+## Desktop agent foundation
+
+Added the full product map, external Ollama/LM Studio model discovery, explicitly selected session-only OpenAI chat, and reviewed local capture actions using the Android skills catalog. Discovery and model routing are covered by loopback fixture tests.

@@ -9,7 +9,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
-private fun nativeDirectory(): Path = System.getenv("ALTER_NATIVE_DIR")?.let(Path::of)
+internal fun nativeDirectory(): Path = System.getenv("ALTER_NATIVE_DIR")?.let(Path::of)
     ?: Path.of(System.getProperty("java.home")).parent.resolve("app").resolve("resources").resolve("native")
 
 fun modelRuntimeLog(): Path = defaultDataDirectory().resolve("model-runtime.log")
@@ -45,15 +45,23 @@ fun nativeProgram(name: String): Path {
 
 class NativeModels : AutoCloseable {
     private var server: Process? = null
+    internal val processId get() = requireNotNull(server).pid()
     val running get() = server?.isAlive == true
 
     suspend fun start(spec: ModelSpec, port: Int, externalServer: Path? = null, gpuLayers: Int = 0): Unit = withContext(Dispatchers.IO) {
         require(spec.kind == "text" && verified(spec)) { "Download and verify the text model first." }
+        startFile(modelPath(spec), port, externalServer, gpuLayers)
+    }
+
+    suspend fun startFile(file: Path, port: Int, externalServer: Path? = null, gpuLayers: Int = 0): Unit = withContext(Dispatchers.IO) {
+        require(Files.isRegularFile(file) && Files.newInputStream(file).use { it.readNBytes(4).contentEquals("GGUF".toByteArray()) }) {
+            "Choose a local GGUF model file."
+        }
         if (running) stop()
         require(gpuLayers in 0..99)
         val exe = externalServer ?: nativeProgram("llama-server")
         require(Files.isRegularFile(exe)) { "Selected llama-server.exe is missing." }
-        server = ProcessBuilder(exe.toString(), "-m", modelPath(spec).toString(),
+        server = ProcessBuilder(exe.toString(), "-m", file.toAbsolutePath().toString(),
             "--host", "127.0.0.1", "--port", port.toString(), "-c", "2048", "--parallel", "1", "-ngl", gpuLayers.toString())
             .directory(exe.parent.toFile()).redirectErrorStream(true)
             .redirectOutput(modelRuntimeLog().toFile()).start()
