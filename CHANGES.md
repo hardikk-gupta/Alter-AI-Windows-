@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.4 desktop preview
+
+Turning off global dictation now waits for Windows to release the shortcut.
+
 ## 0.2.3 desktop preview
 
 Chat history search lives in Settings → Workspace.

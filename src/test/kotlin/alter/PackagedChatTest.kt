@@ -23,7 +23,13 @@ class PackagedChatTest {
             withTimeout(25_000) {
                 repeat(2) {
                     val events = Channel<String>(Channel.UNLIMITED)
-                    val watcher = launch { WindowsIntegration.watchShortcut { events.send(it) } }
+                    val watcher = launch {
+                        try { WindowsIntegration.watchShortcut { events.send(it) } }
+                        catch (e: IllegalStateException) {
+                            if (e is java.util.concurrent.CancellationException) throw e
+                            throw AssertionError("Shortcut registration ${it + 1}: ${e.message}", e)
+                        }
+                    }
                     try {
                         assertEquals("ready", events.receive())
                         keyboard.keyPress(KeyEvent.VK_CONTROL)

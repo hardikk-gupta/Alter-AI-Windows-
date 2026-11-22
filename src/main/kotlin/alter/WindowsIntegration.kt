@@ -55,10 +55,25 @@ internal object WindowsIntegration {
                     val monitor = launch { awaitCancellation() }
                     monitor.invokeOnCompletion { process.destroy() }
                     try {
-                        while (isActive) event(reader.readLine() ?: error("The shortcut is unavailable. Another app may be using it."))
+                        while (isActive) {
+                            val line = try { reader.readLine() } catch (e: java.io.IOException) {
+                                ensureActive()
+                                throw e
+                            }
+                            // Cancelling an idle listener wakes readLine with EOF.
+                            ensureActive()
+                            if (line == null) {
+                                val exit = process.waitFor()
+                                error(if (exit == 2) "Another app is using Ctrl + Alt + Space."
+                                    else "The Windows shortcut listener stopped (code $exit).")
+                            }
+                            event(line)
+                        }
                     } finally { monitor.cancel() }
                 }
             }
-        } finally { process.destroy() }
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) { process.destroyForcibly().waitFor() }
+        }
     }
 }
