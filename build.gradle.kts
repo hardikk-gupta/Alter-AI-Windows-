@@ -15,7 +15,7 @@ dependencies {
     testImplementation(kotlin("test-junit"))
 }
 tasks.processResources { exclude("fonts/**") }
-tasks.test { systemProperty("java.awt.headless", "true") }
+tasks.test { systemProperty("java.awt.headless", System.getenv("ALTER_CHECK_PACKAGED_CHAT") != "1") }
 tasks.withType<JavaExec>().configureEach {
     if (name == "run") System.getenv("ALTER_DATA_DIR")?.let { systemProperty("alter.dataDir", it) }
 }

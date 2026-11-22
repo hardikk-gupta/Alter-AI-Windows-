@@ -89,7 +89,7 @@ jobs:
         with:
           path: ${{ runner.temp }}/alter-test-models/models
           key: alter-model-checks-${{ hashFiles('src/main/kotlin/alter/Models.kt') }}
-      - name: Exercise packaged Qwen chat and Whisper transcription
+      - name: Exercise packaged chat, transcription and the Windows dictation shortcut
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -99,7 +99,7 @@ jobs:
           .\gradlew.bat test --tests alter.PackagedChatTest
           if ($LASTEXITCODE -ne 0) {
             $report = [xml](Get-Content "build/test-results/test/TEST-alter.PackagedChatTest.xml" -Raw)
-            throw $report.testsuite.testcase.failure.message
+            throw (($report.SelectNodes('//testcase/failure | //testcase/error') | ForEach-Object { "$($_.ParentNode.name) $($_.message)" }) -join ' / ')
           }
       - name: Upload packaged model measurement
         if: runner.os == 'Windows'
