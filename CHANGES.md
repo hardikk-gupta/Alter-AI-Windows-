@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.2 desktop preview
+
+GitHub file editing creates a reviewed draft PR on a new branch. Skills can require plugins. Home shows deferred approvals and recent projects. Added Figma Cloud layer reads and Windows UI Automation controls for maximizing or restoring a selected window.
+
 ## 0.2.1 desktop preview
 
 Moved project and command controls into Settings and placed Plugins in the chat sidebar. Windows uses its system UI font. The full-height sidebar shares one edge with its icon rail. Plugin setup and permissions open on Connect.

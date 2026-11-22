@@ -96,6 +96,33 @@ class ProjectActionsTest {
         } finally { directory.toFile().deleteRecursively() }
     }
 
+    @Test fun deferredApprovalsAndSkillRequirementsSurviveRestart() {
+        val dir = Files.createTempDirectory("alter-approvals")
+        try {
+            val pending = Store(dir).use { store ->
+                val project = store.createProject("Personal notes", "")
+                store.selectWorkspace(project)
+                assertEquals(listOf(project), store.recentProjects(0))
+                store.saveSkills(listOf(ProjectSkill("Layer", "/figma selection", connections = setOf("Figma Desktop"))))
+                store.beginRun(0, DesktopAction("open_spotify"), deferred = true)
+            }
+            Store(dir).use { store ->
+                store.recoverInterruptedRuns()
+                assertEquals("awaiting approval", store.activity(0).single().state)
+                assertFalse(store.resolveApproval(1, pending, true))
+                assertTrue(store.resolveApproval(0, pending, true))
+                assertFalse(store.resolveApproval(0, pending, true))
+                val skill = store.projectSkills().single()
+                assertEquals("Figma Desktop", skill.missingConnection(emptySet()))
+                assertNull(skill.missingConnection(setOf("Figma Desktop")))
+                val id = store.addMessage(null, "user","Run later")
+                store.deleteThread(id)
+                store.appendActionResult(id, "Complete")
+                assertTrue(store.messages(id).isEmpty())
+            }
+        } finally { dir.toFile().deleteRecursively() }
+    }
+
     @Test fun onlyExplicitCommandsAndRepositoryNamesMatch() {
         assertEquals(DesktopAction("open_spotify"), DesktopAction.parse("Open Spotify!", ""))
         assertNull(DesktopAction.parse("Explain how to open Spotify", ""))

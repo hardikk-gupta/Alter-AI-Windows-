@@ -41,6 +41,7 @@ class Store(private val directory: Path) : AutoCloseable {
                 threadId INTEGER PRIMARY KEY, favorite INTEGER NOT NULL DEFAULT 0, archived INTEGER NOT NULL DEFAULT 0)""")
             s.execute("""CREATE TABLE IF NOT EXISTS projects (
                 id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE, instructions TEXT NOT NULL)""")
+            s.execute("CREATE TABLE IF NOT EXISTS project_visits (project INTEGER UNIQUE NOT NULL)")
             s.execute("""CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY, project INTEGER NOT NULL,
                 action TEXT NOT NULL, argument TEXT NOT NULL, state TEXT NOT NULL, result TEXT NOT NULL DEFAULT '')""")
             val activityColumns = s.executeQuery("PRAGMA table_info(activity)").use { rows ->
@@ -67,6 +68,27 @@ class Store(private val directory: Path) : AutoCloseable {
     }
     @Synchronized fun projects(): List<Project> = db.createStatement().use { statement ->
         statement.executeQuery("SELECT id,name,instructions FROM projects ORDER BY name COLLATE NOCASE").use { rows ->
+            buildList { while (rows.next()) add(Project(rows.getLong(1), rows.getString(2), rows.getString(3))) }
+        }
+    }
+
+    @Synchronized fun selectWorkspace(project: Project) {
+        db.autoCommit = false
+        try {
+            setting("activeProject", project.id.toString(), true)
+            db.prepareStatement("INSERT OR REPLACE INTO project_visits(project) VALUES(?)").use {
+                it.setLong(1, project.id); it.executeUpdate()
+            }
+            db.commit()
+        } catch (e: Exception) { db.rollback(); throw e }
+        finally { db.autoCommit = true }
+    }
+
+    @Synchronized fun recentProjects(current: Long): List<Project> = db.prepareStatement(
+        "SELECT p.id,p.name,p.instructions FROM project_visits v JOIN projects p ON p.id=v.project WHERE p.id<>? ORDER BY v.rowid DESC LIMIT 3"
+    ).use { statement ->
+        statement.setLong(1, current)
+        statement.executeQuery().use { rows ->
             buildList { while (rows.next()) add(Project(rows.getLong(1), rows.getString(2), rows.getString(3))) }
         }
     }
@@ -112,13 +134,21 @@ class Store(private val directory: Path) : AutoCloseable {
         }
     }
 
-    @Synchronized internal fun beginRun(project: Long, action: DesktopAction, thread: Long? = null): Long = db.prepareStatement(
-        "INSERT INTO activity(project,action,argument,thread,started,ownerPid,state) VALUES(?,?,?,?,?,?,'running') RETURNING id"
+    @Synchronized internal fun beginRun(project: Long, action: DesktopAction, thread: Long? = null, deferred: Boolean = false): Long = db.prepareStatement(
+        "INSERT INTO activity(project,action,argument,thread,started,ownerPid,state) VALUES(?,?,?,?,?,?,?) RETURNING id"
     ).use { s ->
         s.setLong(1, project); s.setString(2, action.name); s.setString(3, action.argument)
         s.setObject(4, thread); s.setLong(5, System.currentTimeMillis()); s.setLong(6, ProcessHandle.current().pid())
+        s.setString(7, if (deferred) "awaiting approval" else "running")
         s.executeQuery().use { it.next(); it.getLong(1) }
     }
+
+    @Synchronized internal fun resolveApproval(project: Long, id: Long, approve: Boolean): Boolean =
+        db.prepareStatement("UPDATE activity SET state=?, ownerPid=?, started=? WHERE project=? AND id=? AND state='awaiting approval'").use {
+            it.setString(1, if (approve) "running" else "dismissed"); it.setLong(2, ProcessHandle.current().pid())
+            it.setLong(3, System.currentTimeMillis()); it.setLong(4, project); it.setLong(5, id)
+            it.executeUpdate() == 1
+        }
 
     @Synchronized internal fun finishRun(id: Long, state: String, result: String) {
         db.prepareStatement("UPDATE activity SET state=?,result=? WHERE id=? AND state='running'").use { s ->
@@ -127,7 +157,7 @@ class Store(private val directory: Path) : AutoCloseable {
     }
 
     @Synchronized internal fun activity(project: Long): List<RunEntry> = db.prepareStatement(
-        "SELECT * FROM activity WHERE project=? ORDER BY id DESC LIMIT 50"
+        "SELECT * FROM activity WHERE project=? ORDER BY (state='awaiting approval') DESC, id DESC LIMIT 50"
     ).use { s ->
         s.setLong(1, project)
         s.executeQuery().use { r -> buildList { while (r.next()) add(RunEntry(r.getLong("id"), project,
@@ -217,6 +247,14 @@ class Store(private val directory: Path) : AutoCloseable {
     ).use { s ->
         s.setLong(1, threadId)
         s.executeQuery().use { r -> buildList { while (r.next()) add(r.getString(1) to r.getString(2)) } }
+    }
+
+    @Synchronized fun appendActionResult(thread: Long, result: String) {
+        db.prepareStatement("""INSERT INTO messages(threadId,sender,text,timestamp)
+            SELECT ?, 'action', ?, ? WHERE EXISTS (SELECT 1 FROM messages WHERE threadId=?)""").use {
+            it.setLong(1, thread); it.setString(2, result); it.setLong(3, System.currentTimeMillis())
+            it.setLong(4, thread); it.executeUpdate()
+        }
     }
 
     @Synchronized fun addMessage(threadId: Long?, sender: String, text: String): Long {

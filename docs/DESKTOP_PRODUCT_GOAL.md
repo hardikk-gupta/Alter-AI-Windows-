@@ -31,6 +31,14 @@ Plugins can opt a compatible chat model into proposing commands. Alter validates
 
 Project settings support editing project names and instructions. Import text or Markdown from Voice & files, review it as a note and choose it in the composer’s Add project context dialog. Saved records show their source. Forgetting a memory removes it from the picker. Activity records include timestamps, links to the originating chat and a Save as skill action. Manual GitHub reads can use a fine-grained token bound to the selected repository. Scheduled public briefs use anonymous access.
 
+### Draft pull requests, approvals and connected skills
+
+From Chat → Plugins → GitHub → Manage, choose **Propose a file change**. A separate repository token with Contents and Pull requests write permissions loads the file at a specific Git commit. Review the original and replacement before creating a draft PR. Alter creates a new branch and preserves the original file mode. The dialog retains a recovery link after branch creation and checks for an existing pull request on retry.
+
+Action previews can be deferred to Home and Activity, then approved once or dismissed. Home shows recently opened projects. Imported skills can require individual plugins and take the user to Connect when a required service is missing. “Maximize a window” and “restore a window” open a native window picker for confirmation. The Windows helper checks the selected caption and process before invoking the Window pattern and verifying the result.
+
+Figma Desktop uses the local selection. Figma Cloud uses the remote MCP server and a browser grant. If Figma accepts dynamic public-client registration, Alter stores the public client ID for reuse. Otherwise, configure ALTER_FIGMA_MCP_CLIENT_ID with the registered desktop redirect http://127.0.0.1:43898/callback. Connect tests for get_metadata. In chat, enter /figma followed by the link to a design layer. Live Figma Cloud consent and file reads require an eligible Figma account.
+
 ## Integration decisions before shipping
 
 Use the system browser for sign-in. Confirm the identity project and provision Google and GitHub client registrations and callbacks. Keep provider secrets on the owning service. Store refresh tokens or optional saved API keys with Windows credential protection. Exercise account linking, revocation and cancellation using test accounts.

@@ -9,11 +9,12 @@ import java.time.Duration
 import java.time.Instant
 
 internal enum class ServicePlugin(val label: String, val scope: String, val command: String) {
+    Figma("Figma Cloud", "", "/figma <layer link>"),
     Calendar("Google Calendar", "https://www.googleapis.com/auth/calendar.events.readonly", "calendar events"),
     Drive("Google Drive", "https://www.googleapis.com/auth/drive.metadata.readonly", "list drive files"),
     Spotify("Spotify", "user-read-playback-state user-modify-playback-state", "play <track> on Spotify");
 
-    val configured get() = (if (this == Spotify) listOf("ALTER_SPOTIFY_CLIENT_ID") else
+    val configured get() = this == Figma || (if (this == Spotify) listOf("ALTER_SPOTIFY_CLIENT_ID") else
         listOf("ALTER_GOOGLE_DESKTOP_CLIENT_ID", "ALTER_GOOGLE_DESKTOP_CLIENT_SECRET")).all { !System.getenv(it).isNullOrBlank() }
 }
 
@@ -42,6 +43,7 @@ internal object ServiceTools {
     fun execute(plugin: ServicePlugin, grant: PluginGrant?, argument: String): String {
         require(grant != null && grant.expiry > System.currentTimeMillis()) { "Connect ${plugin.label} in this project’s Plugins first." }
         return when (plugin) {
+            ServicePlugin.Figma -> FigmaMcp.remote(grant.token).readSelection(false, figmaNode(argument))
             ServicePlugin.Calendar -> {
                 val start = encode(Instant.now().toString())
                 val entries = JSONObject(request("https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=$start&singleEvents=true&orderBy=startTime&maxResults=10", grant.token)).getJSONArray("items")

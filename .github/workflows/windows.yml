@@ -51,6 +51,7 @@ jobs:
           if ($LASTEXITCODE -or ((& $helper load 9999).Trim() -ne $fixture)) { throw "Credential round-trip failed" }
           & $helper forget 9999
           if ($LASTEXITCODE) { throw "Could not remove test credential" }
+          ./scripts/test_window_controls.ps1 -Helper $helper
           Copy-Item $helper build/package-resources/windows/native/
       - name: Package and verify Windows installer
         if: runner.os == 'Windows'

@@ -14,15 +14,15 @@ import kotlinx.coroutines.*
 
 @Composable
 internal fun PluginPanel(store: Store, grants: MutableMap<ServicePlugin, PluginGrant>, repoGrant: RepoGrant?,
-    setRepoGrant: (RepoGrant?) -> Unit, previewConnection: Boolean, configureRepo: () -> Unit) {
+    setRepoGrant: (RepoGrant?) -> Unit, initialConnection: String?, configureRepo: () -> Unit) {
     val scope = rememberCoroutineScope()
     var figma by remember { mutableStateOf(store.setting("figmaEnabled").toBoolean()) }
-    var selected by remember { mutableStateOf<String?>(if (previewConnection) "Figma Desktop" else null) }
+    var selected by remember { mutableStateOf(initialConnection) }
     var job by remember { mutableStateOf<Job?>(null) }
     var status by remember { mutableStateOf("") }
     val repo = store.setting("githubRepo")
     val github = validRepo(repo)
-    val names = listOf("GitHub", "Figma Desktop") + ServicePlugin.entries.map { it.label }
+    val names = connectionNames
     Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(13.dp))) {
         names.forEachIndexed { index, name ->
             val plugin = ServicePlugin.entries.firstOrNull { it.label == name }
@@ -39,6 +39,8 @@ internal fun PluginPanel(store: Store, grants: MutableMap<ServicePlugin, PluginG
             if (index < names.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
         }
     }
+    var editRepo by remember { mutableStateOf(false) }
+    if (editRepo) RepositoryEditDialog(repo, store) { editRepo = false }
     selected?.let { name ->
         val plugin = ServicePlugin.entries.firstOrNull { it.label == name }
         val grant = grants[plugin]
@@ -51,7 +53,7 @@ internal fun PluginPanel(store: Store, grants: MutableMap<ServicePlugin, PluginG
                     "GitHub" -> {
                         Text(if (github) repo else "Choose a repository to read workflow runs and issues.")
                         if (github) {
-                            Text("In chat, use /repo checks or /repo issues.")
+                            TextButton(onClick = { selected = null; editRepo = true }) { Text("Propose a file change…") }
                             if (repoGrant?.repository == repo) TextButton(onClick = {
                                 setRepoGrant(null); status = "Private access disconnected."
                             }) { Text("Disconnect private access") }
@@ -70,6 +72,7 @@ internal fun PluginPanel(store: Store, grants: MutableMap<ServicePlugin, PluginG
                         else "Open a design file in Figma Desktop and enable its desktop MCP server. Connect to share selected layer metadata with this project.")
                     else -> {
                         Text(when (plugin) {
+                            ServicePlugin.Figma -> "Read layer metadata from Figma Cloud. In chat, use /figma followed by a layer link."
                             ServicePlugin.Calendar -> "Read upcoming events from your primary Google Calendar."
                             ServicePlugin.Drive -> "Read the names and links of recently modified files."
                             else -> "Play a requested track on your active Spotify Premium device."
@@ -99,7 +102,11 @@ internal fun PluginPanel(store: Store, grants: MutableMap<ServicePlugin, PluginG
                     else -> TextButton(enabled = plugin != null && plugin.configured && job == null, onClick = {
                         if (plugin != null && grant != null) { grants.remove(plugin); close() }
                         else if (plugin != null) job = scope.launch {
-                            try { grants[plugin] = DesktopAuth.connect(plugin); selected = null }
+                            try {
+                                val authorized = DesktopAuth.connect(plugin, store)
+                                if (plugin == ServicePlugin.Figma) runInterruptible(Dispatchers.IO) { FigmaMcp.remote(authorized.token).readSelection(true) }
+                                grants[plugin] = authorized; selected = null
+                            }
                             catch (e: CancellationException) { throw e }
                             catch (e: Exception) { status = e.message ?: "Connection failed." }
                             finally { job = null }

@@ -105,7 +105,7 @@ fun main(args: Array<String>) {
                 AlterApp(workspace, visible && isVisible, preview, store, project, account, { account = it },
                     { visible = true; window.extendedState = java.awt.Frame.NORMAL; window.toFront() },
                     trayAvailable, keepInTray, { keepInTray = it; store.setting("keepInTray", it.toString(), true) }) { next ->
-                    store.setting("activeProject", next.id.toString(), true)
+                    store.selectWorkspace(next)
                     project = next
                 }
             }
@@ -137,6 +137,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
         "voice" -> "Voice & files"; "backup" -> "Backup & account"; else -> null
     }) }
     var pluginsFromChat by remember { mutableStateOf(preview in setOf("plugins", "plugin-connect")) }
+    var requestedPlugin by remember { mutableStateOf<String?>(if (preview == "plugin-connect") "Figma Desktop" else null) }
     var theme by remember { mutableStateOf(store.setting("theme", "Pitch Black")) }
     var reducedMotion by remember { mutableStateOf(store.setting("reducedMotion", "false").toBoolean()) }
     var cards by remember { mutableStateOf(store.cards()) }
@@ -311,13 +312,14 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
     var palette by remember { mutableStateOf(false) }
     var proposalThread by remember { mutableStateOf<Long?>(null) }
     var commandDraft by remember { mutableStateOf<String?>(null) }
-    fun reviewAction(action: DesktopAction, source: String?) {
+    var deferredRun by remember { mutableStateOf<RunEntry?>(null) }
+    fun reviewAction(action: DesktopAction, source: String?, deferred: RunEntry? = null) {
         if (action.plugin?.let { (pluginGrants[it]?.expiry ?: 0) <= System.currentTimeMillis() } == true) {
-            settings = "Plugins"; error = "Connect ${action.plugin?.label} first."; return
+            requestedPlugin = action.plugin?.label; pluginsFromChat = true; settings = "Plugins"; return
         }
         if (action.name == "figma_read" && !store.setting("figmaEnabled").toBoolean()) {
             settings = "Plugins"
-            error = "Enable Figma Desktop in this project first."
+            requestedPlugin = "Figma Desktop"; pluginsFromChat = true
             return
         }
         if (action.name in setOf("repo_brief", "open_repo", "repo_issues") && !validRepo(action.argument)) {
@@ -325,7 +327,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             error = "Save a public GitHub repository for this project, then try the command again."
             return
         }
-        proposalThread = null
+        deferredRun = deferred
+        proposalThread = deferred?.thread
         commandDraft = source
         pendingAction = action
     }
@@ -333,6 +336,9 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
             val repo = store.setting("githubRepo")
             return buildList {
                 add(DesktopAction("open_spotify"))
+                if (WindowsIntegration.available) {
+                    add(DesktopAction("maximize_window")); add(DesktopAction("restore_window"))
+                }
                 if (validRepo(repo)) { add(DesktopAction("open_repo", repo)); add(DesktopAction("repo_brief", repo)); add(DesktopAction("repo_issues", repo)) }
                 if (pluginGrants.containsKey(ServicePlugin.Calendar)) add(DesktopAction("calendar_events"))
                 if (pluginGrants.containsKey(ServicePlugin.Drive)) add(DesktopAction("drive_files"))
@@ -393,30 +399,61 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                 } }, confirmButton = { TextButton(onClick = { palette = false }) { Text("Close") } })
         }
         pendingAction?.let { action ->
+            var windows by remember(action) { mutableStateOf(emptyList<WindowTarget>()) }
+            var target by remember(action) { mutableStateOf<WindowTarget?>(null) }
+            var windowStatus by remember(action) { mutableStateOf("Finding windows…") }
+            LaunchedEffect(action) {
+                if (action.needsWindow) try {
+                    check(WindowsIntegration.available) { "This command requires Alter for Windows." }
+                    windows = runInterruptible(Dispatchers.IO) { WindowsIntegration.windows() }
+                    windowStatus = if (windows.isEmpty()) "No application windows available." else "Choose a window"
+                } catch (e: CancellationException) { throw e }
+                catch (e: Exception) { windowStatus = e.message ?: "Could not list windows." }
+            }
+            fun recordRequest(): Long? {
+                val text = commandDraft ?: return proposalThread
+                val id = store.addMessage(threadId, "user", text)
+                drafts.remove(threadId); threadId = id; prompt = ""
+                messages = store.messages(id); threads = store.threads()
+                commandDraft = null; proposalThread = id
+                return id
+            }
             AlertDialog(onDismissRequest = { pendingAction = null }, title = { Text(action.title) },
-                text = { Text("Run in ${project.name}? Alter will record the result in Activity.") },
-                dismissButton = { TextButton(onClick = { pendingAction = null }) { Text("Cancel") } },
-                confirmButton = { Button(onClick = {
-                    pendingAction = null
-                    attempt {
-                        val origin = commandDraft
-                        val id = if (origin != null) store.addMessage(threadId, "user", origin) else proposalThread
-                        if (id != null) {
-                            drafts.remove(threadId); threadId = id; prompt = ""
-                            messages = store.messages(id); threads = store.threads()
-                        }
-                        generation = scope.launch {
-                            try {
-                                val run = catalog.beginRun(project.id, action, id)
-                                val result = catalog.executeRun(run, action, store.setting("figmaEnabled").toBoolean(), pluginGrants[action.plugin], repoGrant?.takeIf { it.repository == store.setting("githubRepo") })
-                                if (id != null) {
-                                    store.addMessage(id, "action", result)
-                                    messages = store.messages(id); threads = store.threads()
-                                }
-                            } finally { generation = null }
-                        }
+                text = {
+                    if (action.needsWindow) Column(Modifier.heightIn(max = 280.dp).verticalScroll(rememberScrollState())) {
+                        Text(windowStatus)
+                        windows.forEach { item -> WorkspaceRow(item.title, selected = item == target) { target = item } }
+                    } else Text("Run in ${project.name}? Alter will record the result in Activity.")
+                },
+                dismissButton = { Row {
+                    if (deferredRun == null) TextButton(onClick = { attempt {
+                        catalog.beginRun(project.id, action, recordRequest(), deferred = true)
+                        pendingAction = null
+                    } }) { Text("Review later") }
+                    TextButton(onClick = { pendingAction = null }) { Text("Cancel") }
+                } }, confirmButton = { Button(enabled = !action.needsWindow || target != null, onClick = { attempt {
+                    val chosenWindow = target
+                    val id = recordRequest()
+                    val waiting = deferredRun
+                    val run = if (waiting == null) catalog.beginRun(project.id, action, id) else {
+                        check(catalog.resolveApproval(project.id, waiting.id, true)) { "This request was already reviewed." }
+                        waiting.id
                     }
-                }) { Text("Run") } })
+                    pendingAction = null
+                    generation = scope.launch {
+                        try {
+                            val result = catalog.executeRun(run, action, store.setting("figmaEnabled").toBoolean(), pluginGrants[action.plugin],
+                                repoGrant?.takeIf { it.repository == store.setting("githubRepo") }, chosenWindow)
+                            if (id != null) {
+                                store.appendActionResult(id, result)
+                                if (threadId == id) messages = store.messages(id)
+                                threads = store.threads()
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: Exception) { error = e.message ?: "Could not record the action result." }
+                        finally { generation = null }
+                    }
+                } }) { Text("Run") } })
         }
         Surface(Modifier.fillMaxSize(), color = colors.background) {
             val content = cards.filter { card -> when (destination) {
@@ -443,7 +480,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                 val sidebarContent = @Composable {
                     val chatPlugins = settings == "Plugins" && pluginsFromChat
                     WorkspaceSidebar(if (chatPlugins) null else settings, destination == Destination.Chat, chatPlugins, {
-                        pluginsFromChat = true; settings = "Plugins"; if (compact) sidebar = false
+                        requestedPlugin = null; pluginsFromChat = true; settings = "Plugins"; if (compact) sidebar = false
                     }, threadId.takeIf { settings == null && destination == Destination.Chat },
                         filteredThreads, historyQuery, { historyQuery = it },
                         { openThread(null); if (compact) sidebar = false },
@@ -680,13 +717,16 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 }
                             }
                             "Skills" -> ProjectSkillsPanel(store, projectSkills) { projectSkills = store.projectSkills() }
-                            "Plugins" -> PluginPanel(store, pluginGrants, repoGrant, { repoGrant = it }, preview == "plugin-connect", { settings = "Actions & schedules" })
+                            "Plugins" -> {
+                                PluginPanel(store, pluginGrants, repoGrant, { repoGrant = it }, requestedPlugin, { settings = "Actions & schedules" })
+                                LaunchedEffect(Unit) { requestedPlugin = null }
+                            }
                             "Actions & schedules" -> {
                                 if (trayAvailable) Row(verticalAlignment = Alignment.CenterVertically) {
                                     Checkbox(keepInTray, onCheckedChange = setKeepInTray)
                                     Text("Keep Alter running in the tray when closed")
                                 }
-                                ActivityPanel(catalog, store, project, { reviewAction(it, null) }, canSwitch, ::openThread) { projectSkills = store.projectSkills() }
+                                ActivityPanel(catalog, store, project, { reviewAction(it.action, null, it.takeIf { row -> row.state == "awaiting approval" }) }, canSwitch, ::openThread) { projectSkills = store.projectSkills() }
                             }
                             "Voice & files" -> {
                                 Text("Dictation", style = MaterialTheme.typography.headlineSmall)
@@ -704,7 +744,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 Column(Modifier.fillMaxWidth().background(colors.surface, RoundedCornerShape(18.dp))
                                     .border(1.dp, colors.outline, RoundedCornerShape(18.dp)).padding(20.dp),
                                     verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    Text("Alter for Windows · 0.2.1", fontWeight = FontWeight.Bold)
+                                    Text("Alter for Windows · 0.2.2", fontWeight = FontWeight.Bold)
                                     Text("Install a newer MSI to upgrade. Your notes and downloaded models stay under your Windows user profile.")
                                     TextButton(onClick = { attempt { Desktop.getDesktop().browse(java.net.URI(
                                         "https://github.com/hardikk-gupta/Alter-AI-Windows-/actions/workflows/windows.yml")) } }) { Text("View latest build ↗") }
@@ -718,8 +758,18 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                                 modelLabel, installed,
                                 modelWork != null, speaking, generation != null,
                                 { addContext = true }, projectSkills, { skill ->
+                                    val connected = buildSet {
+                                        if (validRepo(store.setting("githubRepo"))) add("GitHub")
+                                        if (store.setting("figmaEnabled").toBoolean()) add("Figma Desktop")
+                                        pluginGrants.filterValues { it.expiry > System.currentTimeMillis() }.keys.forEach { add(it.label) }
+                                    }
+                                    val missing = skill.missingConnection(connected)
+                                    if (missing != null) {
+                                        requestedPlugin = missing; pluginsFromChat = true; settings = "Plugins"
+                                    } else {
                                     val combined = listOf(skill.instructions, prompt).filter(String::isNotBlank).joinToString("\n\n")
                                     if (combined.length <= 16000) prompt = combined else error = "Shorten the draft before adding this skill."
+                                    }
                                 }, if (speaking || modelWork != null) modelStatus else "",
                                 { spec -> if (installed[spec] == true) activateModel(spec) else confirmDownload = spec }, { settings = "AI models" }, { type ->
                                     draft = AlterCard(type = type, rawInput = if (type == "note") "" else prompt, processedContent = prompt, source = "Chat draft")
@@ -730,7 +780,8 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
                     } else if (destination == Destination.Home) {
                         var latest by remember { mutableStateOf(catalog.activity(project.id).firstOrNull()) }
                         LaunchedEffect(project.id) { while (true) { latest = catalog.activity(project.id).firstOrNull(); delay(5000) } }
-                        HomeContent(cards, latest, { settings = "Actions & schedules" }, { destination = Destination.Chat }, { destination = Destination.Upcoming },
+                        val recentProjects = remember(project) { catalog.recentProjects(project.id) }
+                        HomeContent(cards, latest, recentProjects, canSwitch && prompt.isBlank(), selectProject, { settings = "Actions & schedules" }, { destination = Destination.Chat }, { destination = Destination.Upcoming },
                             { draft = it }, { delete = it }, { card, text -> attempt {
                                 store.save(completeCardTask(card, text)); cards = store.cards()
                             } }, Modifier.weight(1f))
@@ -814,7 +865,7 @@ private fun AlterApp(store: Store, active: Boolean, preview: String?, catalog: S
 }
 
 @Composable
-private fun HomeContent(cards: List<AlterCard>, latest: RunEntry?, openActivity: () -> Unit, onChat: () -> Unit, onUpcoming: () -> Unit,
+private fun HomeContent(cards: List<AlterCard>, latest: RunEntry?, recentProjects: List<Project>, canSwitch: Boolean, switch: (Project) -> Unit, openActivity: () -> Unit, onChat: () -> Unit, onUpcoming: () -> Unit,
     onEdit: (AlterCard) -> Unit, onDelete: (AlterCard) -> Unit,
     onComplete: (AlterCard, String) -> Unit, modifier: Modifier = Modifier) {
     val colors = MaterialTheme.colorScheme
@@ -829,6 +880,10 @@ private fun HomeContent(cards: List<AlterCard>, latest: RunEntry?, openActivity:
 
             }
             TextButton(onClick = onUpcoming) { Text("See upcoming →") }
+        }
+        if (recentProjects.isNotEmpty()) Column {
+            Text("Recent projects", style = MaterialTheme.typography.titleMedium)
+            recentProjects.forEach { project -> WorkspaceRow(project.name, enabled = canSwitch) { switch(project) } }
         }
         if (cards.isEmpty()) {
             Box(Modifier.fillMaxWidth().height(250.dp), contentAlignment = Alignment.BottomStart) {

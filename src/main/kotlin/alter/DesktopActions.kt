@@ -16,11 +16,15 @@ internal fun validRepo(repo: String) = repoPattern.matches(repo) && repo.substri
 internal class RepoGrant(val repository: String, val token: String)
 
 internal data class DesktopAction(val name: String, val argument: String = "") {
+    val needsWindow get() = name == "maximize_window" || name == "restore_window"
     val command get() = when (name) {
+        "maximize_window" -> "maximize a window"
+        "restore_window" -> "restore a window"
         "repo_brief" -> "/repo checks"
         "repo_issues" -> "/repo issues"
         "open_repo" -> "/repo open"
         "open_spotify" -> "/spotify"
+        "figma_file" -> "/figma $argument"
         "figma_read" -> "/figma selection"
         "calendar_events" -> "/calendar"
         "drive_files" -> "/drive"
@@ -29,6 +33,7 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
     }
     val plugin get() = when (name) {
         "calendar_events" -> ServicePlugin.Calendar
+        "figma_file" -> ServicePlugin.Figma
         "drive_files" -> ServicePlugin.Drive
         "play_spotify" -> ServicePlugin.Spotify
         else -> null
@@ -37,15 +42,19 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
         "calendar_events" -> "Read upcoming Google Calendar events"
         "drive_files" -> "List recently modified Drive files"
         "play_spotify" -> "Play “$argument” on your active Spotify device"
+        "figma_file" -> "Read Figma layer at $argument"
         "figma_read" -> "Read selected Figma layer"
         "repo_issues" -> "List open issues for $argument"
+        "maximize_window" -> "Maximize a window"
+        "restore_window" -> "Restore a window"
         "repo_brief" -> "Review checks for $argument"
         "open_repo" -> "Open $argument on GitHub"
         "open_spotify" -> "Open Spotify"
         else -> error("Unknown action.")
     }
 
-    suspend fun execute(figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null): String = runInterruptible(Dispatchers.IO) {
+    suspend fun execute(figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null, window: WindowTarget? = null): String = runInterruptible(Dispatchers.IO) {
+        if (needsWindow) return@runInterruptible WindowsIntegration.resize(requireNotNull(window) { "Choose a window first." }, name == "maximize_window")
         plugin?.let { return@runInterruptible ServiceTools.execute(it, grant, argument) }
         when (name) {
             "open_spotify" -> {
@@ -96,6 +105,8 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
     companion object {
         private val client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(8)).build()
         fun parse(text: String, repo: String): DesktopAction? = when (text.trim().lowercase().trimEnd('.', '!')) {
+            "maximize a window", "maximize window" -> DesktopAction("maximize_window")
+            "restore a window", "restore window" -> DesktopAction("restore_window")
             "calendar events", "/calendar" -> DesktopAction("calendar_events")
             "list drive files", "/drive" -> DesktopAction("drive_files")
             "read my figma selection", "/figma selection" -> DesktopAction("figma_read")
@@ -103,7 +114,8 @@ internal data class DesktopAction(val name: String, val argument: String = "") {
             "open spotify", "/spotify" -> DesktopAction("open_spotify")
             "open my repo", "open my repository", "/repo open" -> DesktopAction("open_repo", repo)
             "review my repo", "review my repository", "/repo checks" -> DesktopAction("repo_brief", repo)
-            else -> Regex("play (.{1,200}) on spotify[.!]?", RegexOption.IGNORE_CASE).matchEntire(text.trim())
+            else -> if (text.trim().startsWith("/figma ", true)) DesktopAction("figma_file", text.trim().substringAfter(' ').trim())
+                else Regex("play (.{1,200}) on spotify[.!]?", RegexOption.IGNORE_CASE).matchEntire(text.trim())
                 ?.let { DesktopAction("play_spotify", it.groupValues[1]) }
         }
     }
@@ -121,9 +133,9 @@ internal fun nextWeekday(after: Instant, time: LocalTime, zone: ZoneId): Instant
     }
 }
 
-internal suspend fun Store.executeRun(id: Long, action: DesktopAction, figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null): String {
+internal suspend fun Store.executeRun(id: Long, action: DesktopAction, figmaEnabled: Boolean = false, grant: PluginGrant? = null, repositoryGrant: RepoGrant? = null, window: WindowTarget? = null): String {
     return try {
-        val result = action.execute(figmaEnabled, grant, repositoryGrant)
+        val result = action.execute(figmaEnabled, grant, repositoryGrant, window)
         finishRun(id, "completed", result)
         result
     } catch (cancelled: CancellationException) {

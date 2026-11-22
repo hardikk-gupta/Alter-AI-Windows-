@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 import java.time.*
 
 @Composable
-internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, run: (DesktopAction) -> Unit, enabled: Boolean, openChat: (Long) -> Unit, skillsChanged: () -> Unit) {
+internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, run: (RunEntry) -> Unit, enabled: Boolean, openChat: (Long) -> Unit, skillsChanged: () -> Unit) {
     var repo by remember { mutableStateOf(workspace.setting("githubRepo")) }
     var schedule by remember { mutableStateOf(catalog.schedules().find { it.project == project.id }) }
     var time by remember { mutableStateOf(schedule?.time?.toString() ?: "09:00") }
@@ -54,12 +54,22 @@ internal fun ActivityPanel(catalog: Store, workspace: Store, project: Project, r
             if (entry.started > 0) Text(Instant.ofEpochMilli(entry.started).atZone(ZoneId.systemDefault()).toLocalDateTime()
                 .format(java.time.format.DateTimeFormatter.ofPattern("MMM d, yyyy · HH:mm")), style = MaterialTheme.typography.bodySmall)
             Row {
-                TextButton(enabled = enabled && entry.state != "running", onClick = { run(entry.action) }) { Text("Run again") }
+                TextButton(enabled = enabled && entry.state != "running", onClick = { run(entry) }) {
+                    Text(if (entry.state == "awaiting approval") "Review" else "Run again")
+                }
+                if (entry.state == "awaiting approval") TextButton(onClick = {
+                    catalog.resolveApproval(project.id, entry.id, false); activity = catalog.activity(project.id)
+                }) { Text("Dismiss") }
                 if (entry.thread != null && entry.thread in threadIds)
                     TextButton(enabled = enabled, onClick = { openChat(entry.thread) }) { Text("Open chat") }
                 if (entry.state == "completed") TextButton(onClick = {
                     try {
-                        val skill = ProjectSkill(entry.action.title.take(100), entry.action.command)
+                        val connection = when (entry.action.name) {
+                            "open_repo", "repo_brief", "repo_issues" -> "GitHub"
+                            "figma_read" -> "Figma Desktop"
+                            else -> entry.action.plugin?.label
+                        }
+                        val skill = ProjectSkill(entry.action.title.take(100), entry.action.command, connections = setOfNotNull(connection))
                         workspace.saveSkills(workspace.projectSkills() + skill)
                         skillsChanged(); status = "Saved to project skills."
                     } catch (e: IllegalArgumentException) { status = e.message ?: "Could not save skill." }

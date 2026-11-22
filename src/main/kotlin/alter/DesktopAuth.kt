@@ -50,14 +50,14 @@ internal object DesktopAuth {
         return JSONObject(result.body())
     }
 
-    private suspend fun browserGrant(scopes: String, spotify: Boolean = false): JSONObject {
-        val client = config(if (spotify) "ALTER_SPOTIFY_CLIENT_ID" else "ALTER_GOOGLE_DESKTOP_CLIENT_ID")
-        val secret = if (spotify) null else config("ALTER_GOOGLE_DESKTOP_CLIENT_SECRET")
+    private suspend fun browserGrant(scopes: String, spotify: Boolean = false, figma: FigmaAuthorization? = null): JSONObject {
+        val client = figma?.clientId ?: config(if (spotify) "ALTER_SPOTIFY_CLIENT_ID" else "ALTER_GOOGLE_DESKTOP_CLIENT_ID")
+        val secret = if (spotify || figma != null) null else config("ALTER_GOOGLE_DESKTOP_CLIENT_SECRET")
         val state = random()
         val verifier = random()
         val challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()))
         val callback = CompletableDeferred<String>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", if (spotify) 43897 else 0), 0)
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", when { spotify -> 43897; figma != null -> URI(figmaRedirect).port; else -> 0 }), 0)
         val redirect = "http://127.0.0.1:${server.address.port}/callback"
         server.createContext("/callback") { exchange ->
             exchange.use {
@@ -73,24 +73,30 @@ internal object DesktopAuth {
         }
         try {
             server.start()
-            val query = form("client_id" to client, "redirect_uri" to redirect, "response_type" to "code",
-                "scope" to scopes, "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256")
-            val authUrl = if (spotify) "https://accounts.spotify.com/authorize" else "https://accounts.google.com/o/oauth2/v2/auth"
+            val params = mutableListOf("client_id" to client, "redirect_uri" to redirect, "response_type" to "code",
+                "state" to state, "code_challenge" to challenge, "code_challenge_method" to "S256")
+            if (scopes.isNotBlank()) params.add("scope" to scopes)
+            if (figma != null) params.add("resource" to figmaResource)
+            val query = form(*params.toTypedArray())
+            val authUrl = figma?.authorize?.toString() ?: if (spotify) "https://accounts.spotify.com/authorize" else "https://accounts.google.com/o/oauth2/v2/auth"
             Desktop.getDesktop().browse(URI("$authUrl?$query"))
             val code = withTimeoutOrNull(180_000) { callback.await() } ?: error("Authorization expired.")
-            val tokenUrl = if (spotify) "https://accounts.spotify.com/api/token" else "https://oauth2.googleapis.com/token"
+            val tokenUrl = figma?.exchange?.toString() ?: if (spotify) "https://accounts.spotify.com/api/token" else "https://oauth2.googleapis.com/token"
             val fields = mutableListOf("code" to code, "client_id" to client, "code_verifier" to verifier,
                 "grant_type" to "authorization_code", "redirect_uri" to redirect)
+            if (figma != null) fields.add("resource" to figmaResource)
             if (secret != null) fields.add("client_secret" to secret)
             return post(tokenUrl, form(*fields.toTypedArray()))
         } finally { server.stop(0) }
     }
 
-    suspend fun connect(plugin: ServicePlugin): PluginGrant = withContext(Dispatchers.IO) {
-        val result = browserGrant(plugin.scope, plugin == ServicePlugin.Spotify)
-        val granted = result.optString("scope").split(" ").toSet()
-        check(plugin.scope.split(" ").all { it in granted }) { "The requested permission was not granted." }
-        PluginGrant(result.getString("access_token"), System.currentTimeMillis() + 1000L * result.getLong("expires_in"))
+    suspend fun connect(plugin: ServicePlugin, store: Store): PluginGrant = withContext(Dispatchers.IO) {
+        val figma = if (plugin == ServicePlugin.Figma) FigmaDiscovery.discover(store) else null
+        val scope = figma?.scope ?: plugin.scope
+        val result = browserGrant(scope, plugin == ServicePlugin.Spotify, figma)
+        val granted = result.optString("scope", scope).split(" ").toSet()
+        check(scope.isBlank() || scope.split(" ").all { it in granted }) { "The requested permission was not granted." }
+        PluginGrant(result.getString("access_token"), System.currentTimeMillis() + 1000L * result.optLong("expires_in", 3600).coerceIn(1, 86400))
     }
 
     private suspend fun github(status: suspend (String) -> Unit): String {

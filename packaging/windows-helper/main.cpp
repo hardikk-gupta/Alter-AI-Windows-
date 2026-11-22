@@ -30,7 +30,14 @@ static int watchShortcut(DWORD parentId) {
     return 0;
 }
 
+int listWindows(DWORD excludePid);
+int setWindowState(HWND window, DWORD pid, bool maximize);
+
 int wmain(int argc, wchar_t** argv) {
+    if (argc == 3 && wcscmp(argv[1], L"windows") == 0) return listWindows(wcstoul(argv[2], nullptr, 10));
+    if (argc == 4 && (wcscmp(argv[1], L"maximize") == 0 || wcscmp(argv[1], L"restore") == 0))
+        return setWindowState(reinterpret_cast<HWND>(wcstoull(argv[2], nullptr, 10)), wcstoul(argv[3], nullptr, 10),
+            wcscmp(argv[1], L"maximize") == 0);
     if (argc == 3 && wcscmp(argv[1], L"shortcut") == 0) return watchShortcut(wcstoul(argv[2], nullptr, 10));
     if (argc != 3) return 1;
     std::wstring id(argv[2]);

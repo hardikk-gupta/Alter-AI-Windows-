@@ -6,6 +6,15 @@ import org.json.*
 import kotlin.test.*
 
 class PluginTest {
+    @Test fun remoteFigmaLinksIdentifyOnlyTheSelectedNode() {
+        val args = figmaNode("https://www.figma.com/design/F1leKey/Screen?node-id=17-90&t=example")
+        assertEquals("F1leKey", args.getString("fileKey"))
+        assertEquals("17:90", args.getString("nodeId"))
+        assertFailsWith<IllegalArgumentException> { figmaNode("https://www.figma.com/design/key/screen") }
+        assertFailsWith<IllegalArgumentException> { figmaNode("https://other.test/design/key/screen?node-id=1-2") }
+        assertFailsWith<IllegalArgumentException> { figmaEndpoint("https://figma.com@other.test/token") }
+    }
+
     @Test fun modelCanOnlySuggestAnEnabledActionWithoutChangingItsTarget() {
         val allowed = DesktopAction("open_repo", "owner/demo")
         fun response(name: String, args: String): String {

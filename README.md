@@ -16,7 +16,7 @@ If the Windows job has not passed or no artifact appears, use the source steps b
 
 Choose **Settings → Workspace → Personal → New project**. Each project has its own chats, notes, settings and instructions. In **Settings → Actions & schedules**, save a public GitHub repository as `owner/name`. In chat, type or dictate **review my repo**, then confirm to fetch the last five workflow runs. This command also works as a guest without a text model. Schedule a weekday brief on the same settings page and enable the tray option to keep it running with the window closed.
 
-**Chat → Plugins** lists connections. Select **Connect** to see setup and permissions.
+**Chat → Plugins** lists connections. Select **Connect** to see setup and permissions. GitHub’s **Manage → Propose a file change** opens a file editor and a draft PR review. Choose **Review later** on a desktop action to revisit it from Home.
 
 **Settings → AI models** supports downloaded Qwen models, local GGUF files, Ollama, LM Studio and a session-only OpenAI key. Google and GitHub sign-in require [provider registration](docs/DESKTOP_PRODUCT_GOAL.md). Preview installers are attached to the successful PR workflow run.
 
