@@ -7,12 +7,12 @@ function Read-Product($file) {
     $properties = @{}
     foreach ($name in @('ProductCode','ProductVersion','ProductName')) {
         $view = $db.OpenView("SELECT Value FROM Property WHERE Property='$name'")
-        $view.Execute()
+        [void]$view.Execute()
         $properties[$name] = $view.Fetch().StringData(1)
-        $view.Close()
+        [void]$view.Close()
     }
     if ($properties.ProductName -ne 'Alter') { throw 'Unexpected MSI product name.' }
-    return $properties
+    return [pscustomobject]$properties
 }
 
 function Install-Alter($file, $info) {
