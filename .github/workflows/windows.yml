@@ -83,13 +83,13 @@ jobs:
           name: Alter-Windows-Screen
           path: build/screenshots/plugins.png
           if-no-files-found: error
-      - name: Cache verified Qwen test weights
+      - name: Cache verified speech and text test weights
         if: runner.os == 'Windows'
         uses: actions/cache@v5
         with:
-          path: ${{ runner.temp }}/alter-test-models
-          key: alter-qwen-small-9465e63a
-      - name: Exercise packaged CPU engine with real local chat
+          path: ${{ runner.temp }}/alter-test-models/models
+          key: alter-model-checks-${{ hashFiles('src/main/kotlin/alter/Models.kt') }}
+      - name: Exercise packaged Qwen chat and Whisper transcription
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -106,7 +106,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: Alter-Windows-Model-Benchmark
-          path: build/reports/packaged-model-benchmark.json
+          path: build/reports/packaged-model-benchmarks/*.json
           if-no-files-found: error
       - name: Upload Windows installer
         if: runner.os == 'Windows'
