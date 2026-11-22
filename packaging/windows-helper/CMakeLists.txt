@@ -7,3 +7,7 @@ target_link_libraries(alter-windows PRIVATE user32 advapi32 ole32 uiautomationco
 add_executable(alter-test-window WIN32 test-window.cpp)
 set_property(TARGET alter-test-window PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
 target_link_libraries(alter-test-window PRIVATE user32)
+add_library(alter-upgrade SHARED upgrade.cpp)
+target_compile_features(alter-upgrade PRIVATE cxx_std_17)
+set_property(TARGET alter-upgrade PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
+target_link_libraries(alter-upgrade PRIVATE msi advapi32 shell32)

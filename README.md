@@ -39,7 +39,7 @@ For local AI, open Settings → AI models, download Qwen and tap **Use model**. 
 
 On an RTX 4050, you can select a compatible official Windows CUDA `llama-server.exe` through **Use NVIDIA GPU runtime…** in AI models for faster local text inference. Keep that runtime's DLLs in the same folder as its executable. Alter's included CPU runtime remains available for lower-end PCs.
 
-Alter suggests a smaller model on lower-memory PCs, checks free disk space before a download, and keeps inference unloaded until you choose **Use model**. The river renders at a bounded resolution and frame rate on slower systems. Models and personal data live under `%LOCALAPPDATA%\Alter`, separate from the installed app, so installing a later version keeps them. Each installer release must increase the version; install the newer MSI to upgrade. Automatic update checks/downloads are not available yet.
+Alter suggests a smaller model on lower-memory PCs, checks free disk space before a download, and keeps inference unloaded until you choose **Use model**. The river renders at a bounded resolution and frame rate on slower systems. Models and personal data live under `%LOCALAPPDATA%\Alter`, and version 0.2.3 installs the application under `%LOCALAPPDATA%\Programs\Alter`. Install 0.2.3 directly over older versions to preserve the workspace and downloads. Each installer release must increase the version; install the newer MSI to upgrade. Automatic update checks/downloads are not available yet.
 
 ## Cloud development
 

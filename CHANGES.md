@@ -1,5 +1,9 @@
 # Changes
 
+## 0.2.3 desktop preview
+
+Windows installs the application under `%LOCALAPPDATA%\Programs\Alter`. Upgrading a legacy installation protects the existing workspace, downloaded models and project files under `%LOCALAPPDATA%\Alter`. Windows CI checks both Qwen sizes and transcribes a synthetic spoken command with Whisper Tiny and Base.
+
 ## 0.2.2 desktop preview
 
 GitHub file editing creates a reviewed draft PR on a new branch. Skills can require plugins. Home shows deferred approvals and recent projects. Local model selection checks chat capabilities. Settings measures local engine load time, first reply latency and peak working set. Added Figma Cloud layer reads and Windows UI Automation controls for maximizing or restoring a selected window.

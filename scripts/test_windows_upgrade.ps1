@@ -19,7 +19,8 @@ function Install-Alter($file, $info) {
     $log = Join-Path $env:RUNNER_TEMP "alter-msi-$($info.ProductVersion).log"
     $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i',"`"$($file.FullName)`"",'/qn','/norestart','/l*v',"`"$log`"")
     if ($process.ExitCode -notin @(0,3010)) {
-        Get-Content $log -Tail 40
+        Select-String -Path $log -Pattern "AlterProtectWorkspace|Return value 3" -Context 2,2
+        Get-Content $log -Tail 15
         throw "MSI install failed with $($process.ExitCode)."
     }
     if ($msi.ProductState($info.ProductCode) -ne 5) { throw 'Alter was not registered as installed.' }
@@ -63,14 +64,20 @@ if ($run) {
             Open-Screen $oldApp 'home'
             python -c "import sqlite3,os; db=sqlite3.connect(os.path.join(os.environ['LOCALAPPDATA'],'Alter','alter-desktop.db')); db.execute('INSERT INTO cards(type,rawInput,processedContent,timestamp) VALUES(?,?,?,?)', ('note','Alter installer test','Synthetic upgrade fixture',0)); db.commit()"
             if ($LASTEXITCODE) { throw 'Could not seed the prior workspace.' }
+            $models = New-Item -ItemType Directory -Force (Join-Path $env:LOCALAPPDATA 'Alter/models')
+            $weight = Join-Path $models.FullName 'upgrade-test.fixture'
+            [IO.File]::WriteAllText($weight, 'Synthetic model fixture')
         }
     }
 }
 $installedApp = Install-Alter $current $currentInfo
+$expected = Join-Path $env:LOCALAPPDATA 'Programs/Alter/Alter.exe'
+if ([IO.Path]::GetFullPath($installedApp) -ne [IO.Path]::GetFullPath($expected)) { throw 'The application and workspace directories must be separate.' }
 Open-Screen $installedApp 'plugins'
 if ($previousInfo) {
     if ($msi.ProductState($previousInfo.ProductCode) -eq 5) { throw 'The older product is still installed.' }
     python -c "import sqlite3,os; db=sqlite3.connect(os.path.join(os.environ['LOCALAPPDATA'],'Alter','alter-desktop.db')); assert db.execute('SELECT count(*) FROM cards WHERE processedContent=? AND isDeleted=0',('Synthetic upgrade fixture',)).fetchone()[0]==1"
     if ($LASTEXITCODE) { throw 'The previous note did not survive the upgrade.' }
+    if ([IO.File]::ReadAllText($weight) -ne 'Synthetic model fixture') { throw 'Model directory did not survive upgrade.' }
     Write-Host "Verified upgrade from $($previousInfo.ProductVersion) to $($currentInfo.ProductVersion) with existing notes."
 } else { Write-Host 'Verified a fresh installation. No older main artifact was available for upgrade testing.' }
