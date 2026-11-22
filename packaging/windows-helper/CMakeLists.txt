@@ -9,5 +9,6 @@ set_property(TARGET alter-test-window PROPERTY MSVC_RUNTIME_LIBRARY MultiThreade
 target_link_libraries(alter-test-window PRIVATE user32)
 add_library(alter-upgrade SHARED upgrade.cpp)
 target_compile_features(alter-upgrade PRIVATE cxx_std_17)
+target_compile_definitions(alter-upgrade PRIVATE UNICODE _UNICODE)
 set_property(TARGET alter-upgrade PROPERTY MSVC_RUNTIME_LIBRARY MultiThreaded)
 target_link_libraries(alter-upgrade PRIVATE msi advapi32 shell32)
